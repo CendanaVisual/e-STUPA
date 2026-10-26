@@ -1,0 +1,511 @@
+// =============================================================================
+// STUPA — Sistem Terpadu Untuk Penilaian Akademik
+// Skema database PostgreSQL (Neon) via Prisma
+// -----------------------------------------------------------------------------
+// Prinsip desain:
+// 1. DATA MASTER (Sekolah, Gtk, Siswa, Mapel) bersifat lintas semester dan
+//    memakai identifier Dapodik sebagai kunci UPSERT agar impor tidak duplikat.
+// 2. DATA AKADEMIK (Rombel, AnggotaRombel, Pembelajaran, Penilaian, Nilai,
+//    NilaiRapor) SELALU terikat ke satu `Semester`. Inilah "multi-tenancy
+//    berbasis semester": ganti semester = lembar nilai baru, data lama tetap
+//    utuh dan bisa dikunci (freeze).
+// 3. ARSIP (ArsipNilai) adalah snapshot denormalisasi yang tidak bergantung
+//    pada data master, sehingga riwayat tetap benar walau master berubah.
+// =============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL") // Neon pooled connection (runtime)
+  directUrl = env("DIRECT_URL") // Neon direct connection (migrasi)
+}
+
+// -----------------------------------------------------------------------------
+// ENUMS
+// -----------------------------------------------------------------------------
+
+enum Role {
+  SUPERADMIN
+  GURU
+}
+
+enum TipeSemester {
+  GANJIL
+  GENAP
+}
+
+/// Siklus hidup sebuah semester
+enum StatusSemester {
+  DRAFT // disiapkan, belum dipakai
+  AKTIF // nilai bisa diinput/diubah
+  DIKUNCI // freeze: read-only, menunggu/selesai diarsipkan
+  ARSIP // sudah di-snapshot ke ArsipNilai
+}
+
+enum JenisKelamin {
+  L
+  P
+}
+
+enum StatusSiswa {
+  AKTIF
+  LULUS
+  PINDAH
+  KELUAR
+}
+
+/// Kategori kolom penilaian (Harian = formatif/sumatif lingkup materi,
+/// UTS = Sumatif Tengah Semester, UAS = Sumatif Akhir Semester)
+enum KategoriPenilaian {
+  HARIAN
+  UTS
+  UAS
+}
+
+enum JenisImpor {
+  SEKOLAH
+  GTK
+  SISWA
+  ROMBEL
+  ANGGOTA_ROMBEL
+  MAPEL
+  PEMBELAJARAN
+}
+
+enum StatusProses {
+  BERHASIL
+  SEBAGIAN // sebagian baris gagal
+  GAGAL
+}
+
+enum JenisBackup {
+  SNAPSHOT_ARSIP // salin nilai ke tabel ArsipNilai
+  EKSPOR_FILE // dump ke berkas (JSON/XLSX)
+}
+
+// -----------------------------------------------------------------------------
+// AUTENTIKASI & RBAC
+// -----------------------------------------------------------------------------
+
+model User {
+  id           String    @id @default(cuid())
+  username     String    @unique
+  email        String?   @unique
+  passwordHash String
+  role         Role      @default(GURU)
+  isActive     Boolean   @default(true)
+  lastLoginAt  DateTime?
+
+  /// Akun GURU wajib ditautkan ke satu data GTK (1:1)
+  gtkId String? @unique
+  gtk   Gtk?    @relation(fields: [gtkId], references: [id], onDelete: SetNull)
+
+  importLogs   ImportLog[]
+  backupLogs   BackupLog[]
+  auditLogs    AuditLog[]
+  nilaiDiubah  Nilai[]      @relation("NilaiUpdatedBy")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("users")
+}
+
+// -----------------------------------------------------------------------------
+// PARAMETER: TAHUN AJARAN & SEMESTER
+// -----------------------------------------------------------------------------
+
+model TahunAjaran {
+  id        String     @id @default(cuid())
+  /// Format "2026/2027"
+  nama      String     @unique
+  tahunMulai Int
+  isAktif   Boolean    @default(false)
+  semester  Semester[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("tahun_ajaran")
+}
+
+model Semester {
+  id            String         @id @default(cuid())
+  tahunAjaranId String
+  tahunAjaran   TahunAjaran    @relation(fields: [tahunAjaranId], references: [id], onDelete: Restrict)
+  tipe          TipeSemester
+  /// Kode gaya Dapodik, mis. "20261" (Ganjil 2026/2027) / "20262" (Genap)
+  kode          String         @unique
+  status        StatusSemester @default(DRAFT)
+  /// Hanya SATU semester yang boleh isAktif = true (dijaga di service layer +
+  /// partial unique index di migrasi SQL tambahan)
+  isAktif       Boolean        @default(false)
+  tanggalMulai  DateTime?      @db.Date
+  tanggalSelesai DateTime?     @db.Date
+  tanggalRapor  DateTime?      @db.Date
+  dikunciPada   DateTime?
+
+  rombel        Rombel[]
+  anggotaRombel AnggotaRombel[]
+  pembelajaran  Pembelajaran[]
+  arsipNilai    ArsipNilai[]
+  backupLogs    BackupLog[]
+  importLogs    ImportLog[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([tahunAjaranId, tipe])
+  @@index([isAktif])
+  @@map("semester")
+}
+
+// -----------------------------------------------------------------------------
+// DATA MASTER (dari impor Dapodik) — lintas semester
+// -----------------------------------------------------------------------------
+
+/// Profil sekolah (1 baris). Kunci upsert: npsn
+model Sekolah {
+  id             String  @id @default(cuid())
+  dapodikId      String? @unique // sekolah_id Dapodik (UUID)
+  npsn           String  @unique
+  nama           String
+  bentukPendidikan String? // SD / SMP / SMA / SMK
+  alamat         String?
+  desaKelurahan  String?
+  kecamatan      String?
+  kabupatenKota  String?
+  provinsi       String?
+  kodePos        String?
+  telepon        String?
+  email          String?
+  website        String?
+  namaKepsek     String?
+  nipKepsek      String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("sekolah")
+}
+
+/// Guru & Tenaga Kependidikan. Kunci upsert prioritas: dapodikId (ptk_id) →
+/// nuptk → nik
+model Gtk {
+  id                String        @id @default(cuid())
+  dapodikId         String?       @unique // ptk_id Dapodik
+  nuptk             String?       @unique
+  nik               String?       @unique
+  nip               String?
+  nama              String
+  jenisKelamin      JenisKelamin?
+  tempatLahir       String?
+  tanggalLahir      DateTime?     @db.Date
+  jenisPtk          String? // Guru Kelas, Guru Mapel, Tendik, dsb.
+  statusKepegawaian String? // PNS, PPPK, Honor, dsb.
+  email             String?
+  noHp              String?
+  isAktif           Boolean       @default(true)
+
+  user          User?
+  waliKelas     Rombel[]       @relation("WaliKelas")
+  pembelajaran  Pembelajaran[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([nama])
+  @@map("gtk")
+}
+
+/// Peserta didik. Kunci upsert prioritas: nisn → dapodikId (peserta_didik_id)
+model Siswa {
+  id              String        @id @default(cuid())
+  dapodikId       String?       @unique // peserta_didik_id Dapodik
+  nisn            String        @unique
+  nis             String? // NIPD / nomor induk sekolah
+  nik             String?
+  nama            String
+  jenisKelamin    JenisKelamin
+  tempatLahir     String?
+  tanggalLahir    DateTime?     @db.Date
+  agama           String?
+  alamat          String?
+  namaAyah        String?
+  namaIbu         String?
+  namaWali        String?
+  status          StatusSiswa   @default(AKTIF)
+  isAktif         Boolean       @default(true)
+
+  anggotaRombel AnggotaRombel[]
+  nilai         Nilai[]
+  nilaiRapor    NilaiRapor[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([nama])
+  @@index([status])
+  @@map("siswa")
+}
+
+/// Mata pelajaran. Kunci upsert: kode
+model Mapel {
+  id          String  @id @default(cuid())
+  dapodikId   Int?    @unique // mata_pelajaran_id Dapodik
+  kode        String  @unique // kode internal/singkatan, mis. "MTK", "PAI"
+  nama        String
+  /// Kode/nama mapel persis seperti di E-Rapor (untuk ekspor)
+  kodeErapor  String?
+  kelompok    String? // Umum / Muatan Lokal / Pilihan
+  urutan      Int     @default(0)
+  isAktif     Boolean @default(true)
+
+  pembelajaran Pembelajaran[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("mapel")
+}
+
+// -----------------------------------------------------------------------------
+// DATA AKADEMIK — selalu terikat ke Semester
+// -----------------------------------------------------------------------------
+
+/// Rombongan belajar / Kelas. Di Dapodik, rombel dibuat ulang tiap semester,
+/// maka di sini juga per-semester. Kunci upsert: dapodikId atau (semesterId, nama)
+model Rombel {
+  id          String   @id @default(cuid())
+  dapodikId   String?  @unique // rombongan_belajar_id Dapodik
+  semesterId  String
+  semester    Semester @relation(fields: [semesterId], references: [id], onDelete: Cascade)
+  nama        String // mis. "4A", "Kelas 4 A"
+  tingkat     Int // 1–12
+  kurikulum   String? // "Kurikulum Merdeka", dsb.
+  waliKelasId String?
+  waliKelas   Gtk?     @relation("WaliKelas", fields: [waliKelasId], references: [id], onDelete: SetNull)
+
+  anggota      AnggotaRombel[]
+  pembelajaran Pembelajaran[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([semesterId, nama])
+  @@index([semesterId, tingkat])
+  @@map("rombel")
+}
+
+/// Keanggotaan siswa di rombel pada satu semester
+model AnggotaRombel {
+  id         String   @id @default(cuid())
+  semesterId String
+  semester   Semester @relation(fields: [semesterId], references: [id], onDelete: Cascade)
+  rombelId   String
+  rombel     Rombel   @relation(fields: [rombelId], references: [id], onDelete: Cascade)
+  siswaId    String
+  siswa      Siswa    @relation(fields: [siswaId], references: [id], onDelete: Cascade)
+  noAbsen    Int?
+
+  createdAt DateTime @default(now())
+
+  /// Satu siswa hanya boleh berada di satu rombel per semester
+  @@unique([semesterId, siswaId])
+  @@index([rombelId])
+  @@map("anggota_rombel")
+}
+
+/// Penugasan mengajar: Guru X mengampu Mapel Y di Rombel Z pada semester S.
+/// Ini adalah dasar RBAC data — guru hanya melihat siswa via Pembelajaran miliknya.
+model Pembelajaran {
+  id         String   @id @default(cuid())
+  dapodikId  String?  @unique // pembelajaran_id Dapodik
+  semesterId String
+  semester   Semester @relation(fields: [semesterId], references: [id], onDelete: Cascade)
+  rombelId   String
+  rombel     Rombel   @relation(fields: [rombelId], references: [id], onDelete: Cascade)
+  mapelId    String
+  mapel      Mapel    @relation(fields: [mapelId], references: [id], onDelete: Restrict)
+  gtkId      String
+  gtk        Gtk      @relation(fields: [gtkId], references: [id], onDelete: Restrict)
+
+  /// KKTP / KKM (opsional)
+  kktp       Int?
+  /// Bobot perhitungan nilai akhir (persen, total = 100)
+  bobotHarian Int @default(50)
+  bobotUts    Int @default(25)
+  bobotUas    Int @default(25)
+  /// Guru menandai nilai sudah final → siap ekspor E-Rapor
+  isFinal     Boolean @default(false)
+
+  penilaian  Penilaian[]
+  nilaiRapor NilaiRapor[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([rombelId, mapelId])
+  @@index([semesterId, gtkId])
+  @@map("pembelajaran")
+}
+
+/// Satu kolom penilaian, mis. "Harian 1 – Pecahan", "UTS", "UAS"
+model Penilaian {
+  id             String            @id @default(cuid())
+  pembelajaranId String
+  pembelajaran   Pembelajaran      @relation(fields: [pembelajaranId], references: [id], onDelete: Cascade)
+  kategori       KategoriPenilaian
+  urutan         Int               @default(1)
+  nama           String
+  /// Tujuan Pembelajaran / lingkup materi (untuk deskripsi rapor)
+  tujuanPembelajaran String?
+  tanggal        DateTime?         @db.Date
+
+  nilai Nilai[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([pembelajaranId, kategori, urutan])
+  @@map("penilaian")
+}
+
+/// Nilai mentah per siswa per kolom penilaian
+model Nilai {
+  id          String    @id @default(cuid())
+  penilaianId String
+  penilaian   Penilaian @relation(fields: [penilaianId], references: [id], onDelete: Cascade)
+  siswaId     String
+  siswa       Siswa     @relation(fields: [siswaId], references: [id], onDelete: Cascade)
+  nilai       Decimal?  @db.Decimal(5, 2) // 0.00 – 100.00
+  catatan     String?
+
+  updatedById String?
+  updatedBy   User?     @relation("NilaiUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([penilaianId, siswaId])
+  @@index([siswaId])
+  @@map("nilai")
+}
+
+/// Nilai akhir rapor per siswa per pembelajaran — sumber ekspor E-Rapor
+model NilaiRapor {
+  id             String       @id @default(cuid())
+  pembelajaranId String
+  pembelajaran   Pembelajaran @relation(fields: [pembelajaranId], references: [id], onDelete: Cascade)
+  siswaId        String
+  siswa          Siswa        @relation(fields: [siswaId], references: [id], onDelete: Cascade)
+
+  rataHarian  Decimal? @db.Decimal(5, 2)
+  nilaiUts    Decimal? @db.Decimal(5, 2)
+  nilaiUas    Decimal? @db.Decimal(5, 2)
+  /// Nilai akhir hasil kalkulasi bobot (bisa di-override guru)
+  nilaiAkhir  Decimal? @db.Decimal(5, 2)
+  isOverride  Boolean  @default(false)
+  /// Deskripsi capaian kompetensi (Kurikulum Merdeka)
+  capaianTertinggi String?
+  capaianTerendah  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([pembelajaranId, siswaId])
+  @@index([siswaId])
+  @@map("nilai_rapor")
+}
+
+// -----------------------------------------------------------------------------
+// ARSIP, BACKUP & LOG
+// -----------------------------------------------------------------------------
+
+/// Snapshot historis yang dibekukan di akhir semester. Sengaja denormalisasi
+/// (menyimpan teks, bukan FK ke master) agar tidak berubah walau master diubah.
+model ArsipNilai {
+  id              String       @id @default(cuid())
+  semesterId      String
+  semester        Semester     @relation(fields: [semesterId], references: [id], onDelete: Restrict)
+  tahunAjaran     String // "2026/2027"
+  tipeSemester    TipeSemester
+  nisn            String
+  namaSiswa       String
+  namaRombel      String
+  tingkat         Int
+  kodeMapel       String
+  namaMapel       String
+  namaGuru        String
+  nuptkGuru       String?
+  rataHarian      Decimal?     @db.Decimal(5, 2)
+  nilaiUts        Decimal?     @db.Decimal(5, 2)
+  nilaiUas        Decimal?     @db.Decimal(5, 2)
+  nilaiAkhir      Decimal?     @db.Decimal(5, 2)
+  capaianTertinggi String?
+  capaianTerendah  String?
+  /// Detail seluruh kolom nilai harian (array {nama, nilai})
+  detailNilai     Json?
+
+  diarsipkanPada DateTime @default(now())
+
+  @@unique([semesterId, nisn, kodeMapel])
+  @@index([nisn])
+  @@map("arsip_nilai")
+}
+
+model BackupLog {
+  id          String       @id @default(cuid())
+  jenis       JenisBackup
+  semesterId  String?
+  semester    Semester?    @relation(fields: [semesterId], references: [id], onDelete: SetNull)
+  status      StatusProses
+  jumlahBaris Int          @default(0)
+  /// URL berkas (mis. Vercel Blob) bila jenis = EKSPOR_FILE
+  fileUrl     String?
+  catatan     String?
+  createdById String?
+  createdBy   User?        @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt   DateTime     @default(now())
+
+  @@map("backup_log")
+}
+
+model ImportLog {
+  id          String       @id @default(cuid())
+  jenis       JenisImpor
+  semesterId  String?
+  semester    Semester?    @relation(fields: [semesterId], references: [id], onDelete: SetNull)
+  namaFile    String
+  totalBaris  Int          @default(0)
+  ditambah    Int          @default(0)
+  diperbarui  Int          @default(0)
+  gagal       Int          @default(0)
+  status      StatusProses
+  /// Array {baris, pesan} untuk baris yang gagal
+  errors      Json?
+  createdById String?
+  createdBy   User?        @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt   DateTime     @default(now())
+
+  @@index([jenis, createdAt])
+  @@map("import_log")
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  aksi      String // mis. "NILAI_UPDATE", "SEMESTER_LOCK", "USER_CREATE"
+  entitas   String
+  entitasId String?
+  data      Json?
+  createdAt DateTime @default(now())
+
+  @@index([entitas, entitasId])
+  @@index([createdAt])
+  @@map("audit_log")
+}
