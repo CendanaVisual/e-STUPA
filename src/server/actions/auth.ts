@@ -18,18 +18,54 @@ export async function login(_prev: LoginState, formData: FormData): Promise<Logi
   if (!parsed.success) return { error: parsed.error.issues[0].message };
 
   const { username, password } = parsed.data;
-  const user = await db.user.findUnique({ where: { username }, include: { gtk: true } });
-  const ok = user && user.isActive && (await bcrypt.compare(password, user.passwordHash));
-  if (!ok) return { error: "Username atau password salah" };
+  const cleanUsername = username.trim();
 
-  await db.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
-  await createSession({
-    userId: user.id,
-    username: user.username,
-    role: user.role,
-    gtkId: user.gtkId,
-    nama: user.gtk?.nama ?? user.username,
-  });
+  let user = null;
+  try {
+    user = await db.user.findFirst({
+      where: {
+        OR: [
+          { username: { equals: cleanUsername, mode: "insensitive" } },
+          { email: { equals: cleanUsername, mode: "insensitive" } },
+        ],
+      },
+      include: { gtk: true },
+    });
+  } catch (err) {
+    console.error("Database connection error during login:", err);
+    return { error: "Gagal terhubung ke database. Pastikan koneksi internet stabil." };
+  }
+
+  if (!user) {
+    return { error: "Username tidak ditemukan. Periksa kembali username Anda." };
+  }
+
+  if (!user.isActive) {
+    return { error: "Akun Anda berstatus nonaktif. Silakan hubungi admin sekolah." };
+  }
+
+  const isPasswordValid = await bcrypt.compare(password, user.passwordHash);
+  if (!isPasswordValid) {
+    return { error: "Password salah. Periksa kembali huruf besar/kecil Anda." };
+  }
+
+  try {
+    await db.user.update({
+      where: { id: user.id },
+      data: { lastLoginAt: new Date() },
+    });
+
+    await createSession({
+      userId: user.id,
+      username: user.username,
+      role: user.role,
+      gtkId: user.gtkId,
+      nama: user.gtk?.nama ?? user.username,
+    });
+  } catch (err) {
+    console.error("Session creation error:", err);
+    return { error: "Gagal membuat sesi login. Silakan coba kembali." };
+  }
 
   redirect(user.role === "SUPERADMIN" ? "/admin" : "/guru");
 }

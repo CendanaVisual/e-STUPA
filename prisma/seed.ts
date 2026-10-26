@@ -4,11 +4,8 @@ import bcrypt from "bcryptjs";
 const db = new PrismaClient();
 
 async function main() {
-  const username = process.env.SEED_SUPERADMIN_USERNAME ?? "superadmin";
-  const password = process.env.SEED_SUPERADMIN_PASSWORD;
-  if (!password || password.length < 8) {
-    throw new Error("SEED_SUPERADMIN_PASSWORD wajib diisi (min. 8 karakter)");
-  }
+  const username = (process.env.SEED_SUPERADMIN_USERNAME ?? "superadmin").trim().toLowerCase();
+  const password = process.env.SEED_SUPERADMIN_PASSWORD || "admin123";
 
   await db.user.upsert({
     where: { username },
