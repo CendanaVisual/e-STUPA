@@ -7,8 +7,8 @@ export default function LoginPage() {
   const [state, formAction, pending] = useActionState<LoginState, FormData>(login, undefined);
 
   // Client-side UI states
-  const [username, setUsername] = useState("superadmin");
-  const [password, setPassword] = useState("admin123");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [capsLockActive, setCapsLockActive] = useState(false);
   const [isForgotModalOpen, setIsForgotModalOpen] = useState(false);
@@ -381,25 +381,6 @@ export default function LoginPage() {
               </button>
             </div>
           </form>
-
-          {/* Quick Review Help Badge */}
-          <div className="mt-4 p-3 rounded-xl bg-blue-50/70 border border-blue-200/80 text-[11px] text-slate-600 flex items-center justify-between">
-            <span className="flex items-center gap-1.5">
-              <i className="fa-solid fa-key text-blue-600" />
-              <span>Akun Uji Coba: <strong>superadmin</strong> / <strong>admin123</strong></span>
-            </span>
-            <button
-              type="button"
-              onClick={() => {
-                setUsername("superadmin");
-                setPassword("admin123");
-                showToastMsg("Kredensial Dimuat", "Username dan password default telah diisi otomatis.", "info");
-              }}
-              className="text-blue-700 font-bold hover:underline"
-            >
-              Isi Otomatis
-            </button>
-          </div>
 
           {/* Security & Support Info Box */}
           <div className="mt-6 pt-5 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
