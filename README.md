@@ -71,7 +71,7 @@ e-stupa/
 ## Menjalankan Secara Lokal
 
 ```bash
-cp .env.example .env        # isi DATABASE_URL, DIRECT_URL, SESSION_SECRET, SEED_*
+cp .env.example .env        # isi DATABASE_URL, SESSION_SECRET, SEED_*
 npm install
 npm run db:deploy           # terapkan migrasi ke database
 npm run db:seed             # buat superadmin awal
@@ -81,7 +81,7 @@ npm run dev
 ## Deploy ke Vercel
 
 1. Import repository ini di Vercel.
-2. Isi Environment Variables: `DATABASE_URL`, `DIRECT_URL`, `SESSION_SECRET`.
+2. Isi Environment Variables: `DATABASE_URL` (dan opsional `SESSION_SECRET`).
 3. Vercel otomatis menjalankan skrip `vercel-build`
    (`prisma generate && prisma migrate deploy && next build`).
 

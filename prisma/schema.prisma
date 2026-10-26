@@ -18,9 +18,8 @@ generator client {
 }
 
 datasource db {
-  provider  = "postgresql"
-  url       = env("DATABASE_URL") // Neon pooled connection (runtime)
-  directUrl = env("DIRECT_URL") // Neon direct connection (migrasi)
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
 
 // -----------------------------------------------------------------------------
@@ -509,3 +508,4 @@ model AuditLog {
   @@index([createdAt])
   @@map("audit_log")
 }
+
