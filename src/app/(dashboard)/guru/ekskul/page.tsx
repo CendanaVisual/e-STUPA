@@ -103,7 +103,7 @@ export default async function GuruNilaiEkskulPage(props: {
                 <option value="">-- Pilih Siswa --</option>
                 {allSiswa.map((s) => (
                   <option key={s.id} value={s.id}>
-                    {s.nama} ({s.anggotaRombel[0]?.rombel.nama || "-"})
+                    {s.nama} ({s.anggotaRombel[0]?.rombel?.nama ?? "-"})
                   </option>
                 ))}
               </select>
@@ -192,7 +192,7 @@ export default async function GuruNilaiEkskulPage(props: {
                     <tr key={n.id} className="hover:bg-slate-50/60 transition">
                       <td className="py-2.5 px-3 font-bold text-slate-800">{n.siswa.nama}</td>
                       <td className="py-2.5 px-3 font-semibold text-slate-600">
-                        {n.siswa.anggotaRombel[0]?.rombel.nama || "-"}
+                        {n.siswa.anggotaRombel[0]?.rombel?.nama ?? "-"}
                       </td>
                       <td className="py-2.5 px-3 text-center">
                         <span

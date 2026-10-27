@@ -146,7 +146,7 @@ export default async function AdminMasterEkskulPage() {
                     </p>
                     <div className="pt-1 text-[10px] text-indigo-600 font-semibold">
                       <i className="fa-solid fa-user-group mr-1" />
-                      {item._count.nilaiEkskul} Siswa Terdaftar
+                      {item._count?.nilaiEkskul ?? 0} Siswa Terdaftar
                     </div>
                   </div>
 

@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
 import { tambahKegiatanKalender, hapusKegiatanKalender } from "@/server/actions/kalender";
+import { safeFormatDate, safeMonthShort, safeDayNumber } from "@/lib/date";
 
 export default async function AdminKalenderPage() {
   const activeSemester = await db.semester.findFirst({
@@ -142,13 +143,13 @@ export default async function AdminKalenderPage() {
             <div className="space-y-3">
               {kegiatan.map((item) => {
                 const style = kategoriColors[item.kategori] || kategoriColors.Akademik;
-                const tglMulai = new Date(item.tanggalMulai).toLocaleDateString("id-ID", {
+                const tglMulai = safeFormatDate(item.tanggalMulai, {
                   day: "numeric",
                   month: "short",
                   year: "numeric",
                 });
                 const tglSelesai = item.tanggalSelesai
-                  ? new Date(item.tanggalSelesai).toLocaleDateString("id-ID", {
+                  ? safeFormatDate(item.tanggalSelesai, {
                       day: "numeric",
                       month: "short",
                       year: "numeric",
@@ -163,10 +164,10 @@ export default async function AdminKalenderPage() {
                     <div className="flex items-start gap-3.5">
                       <div className="w-10 h-10 rounded-xl bg-white border border-slate-200 text-blue-600 flex flex-col items-center justify-center shrink-0 shadow-xs">
                         <span className="text-[10px] font-bold text-slate-400 leading-none">
-                          {new Date(item.tanggalMulai).toLocaleDateString("id-ID", { month: "short" })}
+                          {safeMonthShort(item.tanggalMulai)}
                         </span>
                         <span className="text-sm font-extrabold leading-none mt-0.5">
-                          {new Date(item.tanggalMulai).getDate()}
+                          {safeDayNumber(item.tanggalMulai)}
                         </span>
                       </div>
                       <div>

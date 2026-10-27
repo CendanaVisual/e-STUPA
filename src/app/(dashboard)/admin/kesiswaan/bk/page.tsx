@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
 import { tambahBk, updateStatusBk, hapusBk } from "@/server/actions/kesiswaan";
+import { safeFormatDate } from "@/lib/date";
 
 export default async function AdminBkPage() {
   const activeSemester = await db.semester.findFirst({
@@ -86,7 +87,7 @@ export default async function AdminBkPage() {
                 <option value="">-- Pilih Siswa --</option>
                 {allSiswa.map((s) => (
                   <option key={s.id} value={s.id}>
-                    {s.nama} ({s.anggotaRombel[0]?.rombel.nama || "-"})
+                    {s.nama} ({s.anggotaRombel[0]?.rombel?.nama ?? "-"})
                   </option>
                 ))}
               </select>
@@ -184,7 +185,7 @@ export default async function AdminBkPage() {
                     <div className="flex items-center gap-2">
                       <span className="font-bold text-xs text-slate-800">{item.siswa.nama}</span>
                       <span className="text-[10px] text-slate-400 font-mono">
-                        ({item.siswa.anggotaRombel[0]?.rombel.nama || "-"})
+                        ({item.siswa.anggotaRombel[0]?.rombel?.nama ?? "-"})
                       </span>
                       <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-rose-50 text-rose-700 border border-rose-200">
                         {item.kategori}
@@ -244,7 +245,7 @@ export default async function AdminBkPage() {
                   <div className="flex items-center justify-between text-[10px] text-slate-400 pt-1">
                     <span>
                       Tanggal:{" "}
-                      {new Date(item.tanggal).toLocaleDateString("id-ID", {
+                      {safeFormatDate(item.tanggal, {
                         day: "numeric",
                         month: "long",
                         year: "numeric",

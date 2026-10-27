@@ -1,4 +1,5 @@
 import { db } from "@/lib/db";
+import { safeFormatDate, safeMonthShort, safeDayNumber } from "@/lib/date";
 
 export default async function GuruKalenderPage() {
   const activeSemester = await db.semester.findFirst({
@@ -51,13 +52,13 @@ export default async function GuruKalenderPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {kegiatan.map((item) => {
               const style = kategoriColors[item.kategori] || kategoriColors.Akademik;
-              const tglMulai = new Date(item.tanggalMulai).toLocaleDateString("id-ID", {
+              const tglMulai = safeFormatDate(item.tanggalMulai, {
                 day: "numeric",
                 month: "long",
                 year: "numeric",
               });
               const tglSelesai = item.tanggalSelesai
-                ? new Date(item.tanggalSelesai).toLocaleDateString("id-ID", {
+                ? safeFormatDate(item.tanggalSelesai, {
                     day: "numeric",
                     month: "long",
                     year: "numeric",
@@ -71,10 +72,10 @@ export default async function GuruKalenderPage() {
                 >
                   <div className="w-12 h-12 rounded-2xl bg-white border border-slate-200 text-blue-600 flex flex-col items-center justify-center shrink-0 shadow-xs">
                     <span className="text-[10px] font-bold text-slate-400 uppercase leading-none">
-                      {new Date(item.tanggalMulai).toLocaleDateString("id-ID", { month: "short" })}
+                      {safeMonthShort(item.tanggalMulai)}
                     </span>
                     <span className="text-base font-extrabold leading-none mt-1">
-                      {new Date(item.tanggalMulai).getDate()}
+                      {safeDayNumber(item.tanggalMulai)}
                     </span>
                   </div>
                   <div className="min-w-0 flex-1">

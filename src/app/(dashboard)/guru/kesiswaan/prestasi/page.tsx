@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
 import { tambahPrestasi } from "@/server/actions/kesiswaan";
+import { safeFormatDate } from "@/lib/date";
 
 export default async function GuruPrestasiPage() {
   const activeSemester = await db.semester.findFirst({
@@ -81,7 +82,7 @@ export default async function GuruPrestasiPage() {
                 <option value="">-- Pilih Siswa --</option>
                 {allSiswa.map((s) => (
                   <option key={s.id} value={s.id}>
-                    {s.nama} ({s.anggotaRombel[0]?.rombel.nama || "-"})
+                    {s.nama} ({s.anggotaRombel[0]?.rombel?.nama ?? "-"})
                   </option>
                 ))}
               </select>
@@ -174,10 +175,10 @@ export default async function GuruPrestasiPage() {
                       </span>
                     </div>
                     <p className="text-[11px] text-slate-600 font-semibold">
-                      {p.siswa.nama} • {p.siswa.anggotaRombel[0]?.rombel.nama || "-"}
+                      {p.siswa.nama} • {p.siswa.anggotaRombel[0]?.rombel?.nama ?? "-"}
                     </p>
                     <p className="text-[10px] text-slate-400">
-                      {p.kategori} • Tingkat {p.tingkat}
+                      {p.kategori} • Tingkat {p.tingkat} {p.tanggal ? `• ${safeFormatDate(p.tanggal)}` : ""}
                     </p>
                   </div>
                 </div>

@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
 import { createUser, toggleUserStatus } from "@/server/actions/users";
+import { safeFormatDate } from "@/lib/date";
 
 export default async function UsersManagementPage() {
   const [users, availableGtks] = await Promise.all([
@@ -135,7 +136,7 @@ export default async function UsersManagementPage() {
                       <p className="font-bold text-slate-800">{u.username}</p>
                       <p className="text-[10px] text-slate-400">
                         {u.lastLoginAt
-                          ? `Login: ${new Date(u.lastLoginAt).toLocaleDateString("id-ID")}`
+                          ? `Login: ${safeFormatDate(u.lastLoginAt)}`
                           : "Belum pernah login"}
                       </p>
                     </td>

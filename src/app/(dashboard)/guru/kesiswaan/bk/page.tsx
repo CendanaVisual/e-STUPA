@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
 import { tambahBk } from "@/server/actions/kesiswaan";
+import { safeFormatDate } from "@/lib/date";
 
 export default async function GuruBkPage() {
   const activeSemester = await db.semester.findFirst({
@@ -82,7 +83,7 @@ export default async function GuruBkPage() {
                 <option value="">-- Pilih Siswa --</option>
                 {allSiswa.map((s) => (
                   <option key={s.id} value={s.id}>
-                    {s.nama} ({s.anggotaRombel[0]?.rombel.nama || "-"})
+                    {s.nama} ({s.anggotaRombel[0]?.rombel?.nama ?? "-"})
                   </option>
                 ))}
               </select>
@@ -164,7 +165,7 @@ export default async function GuruBkPage() {
                     <div className="flex items-center gap-2">
                       <span className="font-bold text-xs text-slate-800">{item.siswa.nama}</span>
                       <span className="text-[10px] text-slate-400 font-mono">
-                        ({item.siswa.anggotaRombel[0]?.rombel.nama || "-"})
+                        ({item.siswa.anggotaRombel[0]?.rombel?.nama ?? "-"})
                       </span>
                       <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-rose-50 text-rose-700 border border-rose-200">
                         {item.kategori}

@@ -104,7 +104,7 @@ export default async function AdminNilaiEkskulPage(props: {
                 <option value="">-- Pilih Siswa --</option>
                 {allSiswa.map((s) => (
                   <option key={s.id} value={s.id}>
-                    {s.nama} ({s.anggotaRombel[0]?.rombel.nama || "Tanpa Kelas"})
+                    {s.nama} ({s.anggotaRombel[0]?.rombel?.nama ?? "Tanpa Kelas"})
                   </option>
                 ))}
               </select>
@@ -195,7 +195,7 @@ export default async function AdminNilaiEkskulPage(props: {
                     <tr key={n.id} className="hover:bg-slate-50/60 transition">
                       <td className="py-2.5 px-3 font-bold text-slate-800">{n.siswa.nama}</td>
                       <td className="py-2.5 px-3 font-semibold text-slate-600">
-                        {n.siswa.anggotaRombel[0]?.rombel.nama || "-"}
+                        {n.siswa.anggotaRombel[0]?.rombel?.nama ?? "-"}
                       </td>
                       <td className="py-2.5 px-3 text-center">
                         <span
