@@ -28,10 +28,11 @@ function SidebarNavInner({ nav }: { nav: NavItem[] }) {
               {cat}
             </p>
             {items.map((item) => {
-              const isActive =
-                item.href === "/admin" || item.href === "/guru"
+              const isActive = pathname
+                ? item.href === "/admin" || item.href === "/guru"
                   ? pathname === item.href
-                  : pathname.startsWith(item.href);
+                  : pathname.startsWith(item.href)
+                : false;
 
               return (
                 <Link

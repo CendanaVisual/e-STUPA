@@ -43,11 +43,13 @@ export default async function AdminStatistikPage() {
   // Analisis per Mapel
   const mapelMap = new Map<string, { nama: string; total: number; count: number }>();
   allNilaiRapor.forEach((nr) => {
-    const m = nr.pembelajaran.mapel;
-    const cur = mapelMap.get(m.id) || { nama: m.nama, total: 0, count: 0 };
-    cur.total += Number(nr.nilaiAkhir ?? 0);
-    cur.count++;
-    mapelMap.set(m.id, cur);
+    const m = nr.pembelajaran?.mapel;
+    if (m) {
+      const cur = mapelMap.get(m.id) || { nama: m.nama, total: 0, count: 0 };
+      cur.total += Number(nr.nilaiAkhir ?? 0);
+      cur.count++;
+      mapelMap.set(m.id, cur);
+    }
   });
 
   const mapelAverages = Array.from(mapelMap.values())

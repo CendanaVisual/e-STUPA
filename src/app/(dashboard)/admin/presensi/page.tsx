@@ -1,12 +1,12 @@
 import { db } from "@/lib/db";
 import { simpanPresensiKelasBatch } from "@/server/actions/presensi";
 
-export default async function AdminPresensiPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ rombelId?: string; date?: string }>;
+export default async function AdminPresensiPage(props: {
+  searchParams?: Promise<{ rombelId?: string; date?: string }>;
 }) {
-  const { rombelId: rawRombelId, date: rawDate } = await searchParams;
+  const sp = props?.searchParams ? await props.searchParams : {};
+  const rawRombelId = sp?.rombelId;
+  const rawDate = sp?.date;
 
   const activeSemester = await db.semester.findFirst({
     where: { isAktif: true },

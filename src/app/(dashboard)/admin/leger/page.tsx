@@ -1,11 +1,10 @@
 import { db } from "@/lib/db";
 
-export default async function AdminLegerPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ rombelId?: string }>;
+export default async function AdminLegerPage(props: {
+  searchParams?: Promise<{ rombelId?: string }>;
 }) {
-  const { rombelId: rawRombelId } = await searchParams;
+  const sp = props?.searchParams ? await props.searchParams : {};
+  const rawRombelId = sp?.rombelId;
 
   const activeSemester = await db.semester.findFirst({
     where: { isAktif: true },

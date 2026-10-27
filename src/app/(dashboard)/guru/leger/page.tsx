@@ -1,13 +1,12 @@
 import { db } from "@/lib/db";
 import { requireRole } from "@/lib/auth/session";
 
-export default async function GuruLegerPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ rombelId?: string }>;
+export default async function GuruLegerPage(props: {
+  searchParams?: Promise<{ rombelId?: string }>;
 }) {
   const session = await requireRole("GURU");
-  const { rombelId: rawRombelId } = await searchParams;
+  const sp = props?.searchParams ? await props.searchParams : {};
+  const rawRombelId = sp?.rombelId;
 
   const user = await db.user.findUnique({
     where: { id: session.userId },

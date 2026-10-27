@@ -8,14 +8,14 @@ import {
   generateDefaultPenilaian,
 } from "@/server/actions/penilaian";
 
-export default async function InputNilaiPage({
-  params,
-}: {
-  params: Promise<{ pembelajaranId: string }>;
+export default async function InputNilaiPage(props: {
+  params?: Promise<{ pembelajaranId: string }>;
 }) {
-  const { pembelajaranId } = await params;
+  const pms = props?.params ? await props.params : { pembelajaranId: "" };
+  const pembelajaranId = pms?.pembelajaranId;
   const session = await requireRole("GURU");
   try {
+    if (!pembelajaranId) notFound();
     await assertPembelajaranAccess(session, pembelajaranId);
   } catch {
     notFound();

@@ -1,12 +1,11 @@
 import { db } from "@/lib/db";
 import { simpanNilaiEkskul } from "@/server/actions/ekskul";
 
-export default async function GuruNilaiEkskulPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ ekskulId?: string }>;
+export default async function GuruNilaiEkskulPage(props: {
+  searchParams?: Promise<{ ekskulId?: string }>;
 }) {
-  const { ekskulId: rawEkskulId } = await searchParams;
+  const sp = props?.searchParams ? await props.searchParams : {};
+  const rawEkskulId = sp?.ekskulId;
 
   const activeSemester = await db.semester.findFirst({
     where: { isAktif: true },

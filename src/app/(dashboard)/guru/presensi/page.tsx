@@ -2,13 +2,13 @@ import { db } from "@/lib/db";
 import { requireRole } from "@/lib/auth/session";
 import { simpanPresensiKelasBatch } from "@/server/actions/presensi";
 
-export default async function GuruPresensiPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ rombelId?: string; date?: string }>;
+export default async function GuruPresensiPage(props: {
+  searchParams?: Promise<{ rombelId?: string; date?: string }>;
 }) {
   const session = await requireRole("GURU");
-  const { rombelId: rawRombelId, date: rawDate } = await searchParams;
+  const sp = props?.searchParams ? await props.searchParams : {};
+  const rawRombelId = sp?.rombelId;
+  const rawDate = sp?.date;
 
   const user = await db.user.findUnique({
     where: { id: session.userId },
