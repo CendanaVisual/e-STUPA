@@ -85,6 +85,13 @@ enum JenisBackup {
   EKSPOR_FILE // dump ke berkas (JSON/XLSX)
 }
 
+enum StatusPresensi {
+  HADIR
+  SAKIT
+  IZIN
+  ALPA
+}
+
 // -----------------------------------------------------------------------------
 // AUTENTIKASI & RBAC
 // -----------------------------------------------------------------------------
@@ -153,6 +160,12 @@ model Semester {
   arsipNilai    ArsipNilai[]
   backupLogs    BackupLog[]
   importLogs    ImportLog[]
+  presensi      Presensi[]
+  prestasiSiswa PrestasiSiswa[]
+  bimbingan     BimbinganKonseling[]
+  jurnal        JurnalPerkembangan[]
+  nilaiEkskul   NilaiEkskul[]
+  kalender      KalenderAkademik[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -212,6 +225,7 @@ model Gtk {
   user          User?
   waliKelas     Rombel[]       @relation("WaliKelas")
   pembelajaran  Pembelajaran[]
+  bimbinganBk   BimbinganKonseling[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -242,6 +256,11 @@ model Siswa {
   anggotaRombel AnggotaRombel[]
   nilai         Nilai[]
   nilaiRapor    NilaiRapor[]
+  presensi      Presensi[]
+  prestasi      PrestasiSiswa[]
+  bimbingan     BimbinganKonseling[]
+  jurnal        JurnalPerkembangan[]
+  nilaiEkskul   NilaiEkskul[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -290,6 +309,7 @@ model Rombel {
 
   anggota      AnggotaRombel[]
   pembelajaran Pembelajaran[]
+  presensi     Presensi[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -507,5 +527,151 @@ model AuditLog {
   @@index([entitas, entitasId])
   @@index([createdAt])
   @@map("audit_log")
+}
+
+// -----------------------------------------------------------------------------
+// FITUR EDUGURU: PRESENSI, KESISWAAN, EKSKUL, DAN KALENDER AKADEMIK
+// -----------------------------------------------------------------------------
+
+/// Presensi / Kehadiran Harian Siswa
+model Presensi {
+  id         String         @id @default(cuid())
+  semesterId String
+  semester   Semester       @relation(fields: [semesterId], references: [id], onDelete: Cascade)
+  rombelId   String
+  rombel     Rombel         @relation(fields: [rombelId], references: [id], onDelete: Cascade)
+  siswaId    String
+  siswa      Siswa          @relation(fields: [siswaId], references: [id], onDelete: Cascade)
+  tanggal    DateTime       @db.Date
+  status     StatusPresensi @default(HADIR)
+  keterangan String?
+
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+
+  @@unique([semesterId, siswaId, tanggal])
+  @@index([rombelId, tanggal])
+  @@map("presensi")
+}
+
+/// Data Prestasi Akademik & Non-akademik Siswa
+model PrestasiSiswa {
+  id            String    @id @default(cuid())
+  semesterId    String
+  semester      Semester  @relation(fields: [semesterId], references: [id], onDelete: Cascade)
+  siswaId       String
+  siswa         Siswa     @relation(fields: [siswaId], references: [id], onDelete: Cascade)
+  namaPrestasi  String
+  kategori      String    @default("Akademik") // Akademik / Non-Akademik
+  tingkat       String    @default("Sekolah") // Sekolah / Kecamatan / Kabupaten / Provinsi / Nasional / Internasional
+  peringkat     String    // Juara 1, Juara 2, Juara 3, Harapan 1, Peserta, dll.
+  penyelenggara String?
+  tanggal       DateTime? @db.Date
+  keterangan    String?
+  buktiUrl      String?
+
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([semesterId, siswaId])
+  @@map("prestasi_siswa")
+}
+
+/// Layanan Bimbingan & Konseling (BK) / Catatan Pembinaan
+model BimbinganKonseling {
+  id           String    @id @default(cuid())
+  semesterId   String
+  semester     Semester  @relation(fields: [semesterId], references: [id], onDelete: Cascade)
+  siswaId      String
+  siswa        Siswa     @relation(fields: [siswaId], references: [id], onDelete: Cascade)
+  tanggal      DateTime  @db.Date
+  kategori     String    @default("Belajar") // Pribadi / Sosial / Belajar / Karier / Kedisiplinan
+  permasalahan String
+  tindakLanjut String?
+  status       String    @default("Dalam Penanganan") // Dalam Penanganan / Selesai / Dirujuk
+  guruBkId     String?
+  guruBk       Gtk?      @relation(fields: [guruBkId], references: [id], onDelete: SetNull)
+
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([semesterId, siswaId])
+  @@map("bimbingan_konseling")
+}
+
+/// Jurnal Perkembangan Siswa (Catatan Sikap & Profil Pelajar Pancasila)
+model JurnalPerkembangan {
+  id            String   @id @default(cuid())
+  semesterId    String
+  semester      Semester @relation(fields: [semesterId], references: [id], onDelete: Cascade)
+  siswaId       String
+  siswa         Siswa    @relation(fields: [siswaId], references: [id], onDelete: Cascade)
+  tanggal       DateTime @db.Date
+  dimensiProfil String   // Beriman & Bertakwa, Berkebinekaan Global, Gotong Royong, Mandiri, Bernalar Kritis, Kreatif
+  catatan       String
+  butirSikap    String?  // Positif / Perlu Pembinaan
+  tindakLanjut  String?
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([semesterId, siswaId])
+  @@map("jurnal_perkembangan")
+}
+
+/// Master Kegiatan Ekstrakurikuler
+model Ekstrakurikuler {
+  id          String        @id @default(cuid())
+  nama        String        @unique
+  kategori    String?       // Olahraga, Kesenian, Kepanduan/Pramuka, Sains, Keagamaan
+  pembina     String?
+  hari        String?
+  jam         String?
+  isAktif     Boolean       @default(true)
+
+  nilaiEkskul NilaiEkskul[]
+
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  @@map("ekstrakurikuler")
+}
+
+/// Penilaian & Keanggotaan Ekstrakurikuler Siswa (Untuk E-Rapor)
+model NilaiEkskul {
+  id         String          @id @default(cuid())
+  semesterId String
+  semester   Semester        @relation(fields: [semesterId], references: [id], onDelete: Cascade)
+  ekskulId   String
+  ekskul     Ekstrakurikuler @relation(fields: [ekskulId], references: [id], onDelete: Cascade)
+  siswaId    String
+  siswa      Siswa           @relation(fields: [siswaId], references: [id], onDelete: Cascade)
+  predikat   String          @default("Baik") // Sangat Baik / Baik / Cukup / Kurang
+  keterangan String?
+
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
+
+  @@unique([semesterId, ekskulId, siswaId])
+  @@index([semesterId, siswaId])
+  @@map("nilai_ekskul")
+}
+
+/// Agenda Kalender Akademik Sekolah
+model KalenderAkademik {
+  id             String    @id @default(cuid())
+  semesterId     String
+  semester       Semester  @relation(fields: [semesterId], references: [id], onDelete: Cascade)
+  tanggalMulai   DateTime  @db.Date
+  tanggalSelesai DateTime? @db.Date
+  judulKegiatan  String
+  kategori       String    @default("Akademik") // Akademik, Ujian, Libur, Kegiatan Sekolah, Rapat
+  keterangan     String?
+
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([semesterId, tanggalMulai])
+  @@map("kalender_akademik")
 }
 

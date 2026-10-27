@@ -42,3 +42,7 @@ export async function requireRole(...roles: Role[]): Promise<SessionPayload> {
   if (roles.length > 0 && !roles.includes(session.role)) redirect("/forbidden");
   return session;
 }
+
+export async function requireAuth(): Promise<SessionPayload> {
+  return requireRole();
+}

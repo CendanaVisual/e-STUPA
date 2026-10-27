@@ -187,6 +187,66 @@ export default async function AdminDashboard() {
               <p className="text-[11px] text-slate-500 mt-0.5">Snapshot arsip nilai akhir semester</p>
             </div>
           </Link>
+
+          <Link
+            href="/admin/presensi"
+            className="p-4 rounded-2xl bg-white border border-slate-200 hover:border-sky-300 hover:shadow-md transition-all group flex items-start gap-3.5"
+          >
+            <div className="w-10 h-10 rounded-xl bg-sky-50 border border-sky-200 text-sky-600 flex items-center justify-center shrink-0 group-hover:bg-sky-600 group-hover:text-white transition-colors">
+              <i className="fa-solid fa-clipboard-user text-base" />
+            </div>
+            <div>
+              <p className="text-xs font-bold text-slate-800 group-hover:text-sky-700 transition">
+                Presensi Siswa
+              </p>
+              <p className="text-[11px] text-slate-500 mt-0.5">Daftar hadir harian & rekap kelas</p>
+            </div>
+          </Link>
+
+          <Link
+            href="/admin/leger"
+            className="p-4 rounded-2xl bg-white border border-slate-200 hover:border-indigo-300 hover:shadow-md transition-all group flex items-start gap-3.5"
+          >
+            <div className="w-10 h-10 rounded-xl bg-indigo-50 border border-indigo-200 text-indigo-600 flex items-center justify-center shrink-0 group-hover:bg-indigo-600 group-hover:text-white transition-colors">
+              <i className="fa-solid fa-list-check text-base" />
+            </div>
+            <div>
+              <p className="text-xs font-bold text-slate-800 group-hover:text-indigo-700 transition">
+                Leger Nilai Lengkap
+              </p>
+              <p className="text-[11px] text-slate-500 mt-0.5">Matriks nilai seluruh mapel & ranking</p>
+            </div>
+          </Link>
+
+          <Link
+            href="/admin/statistik"
+            className="p-4 rounded-2xl bg-white border border-slate-200 hover:border-amber-300 hover:shadow-md transition-all group flex items-start gap-3.5"
+          >
+            <div className="w-10 h-10 rounded-xl bg-amber-50 border border-amber-200 text-amber-600 flex items-center justify-center shrink-0 group-hover:bg-amber-600 group-hover:text-white transition-colors">
+              <i className="fa-solid fa-chart-line text-base" />
+            </div>
+            <div>
+              <p className="text-xs font-bold text-slate-800 group-hover:text-amber-700 transition">
+                Analisis Capaian
+              </p>
+              <p className="text-[11px] text-slate-500 mt-0.5">Statistik predikat & ketuntasan KKTP</p>
+            </div>
+          </Link>
+
+          <Link
+            href="/admin/kalender"
+            className="p-4 rounded-2xl bg-white border border-slate-200 hover:border-purple-300 hover:shadow-md transition-all group flex items-start gap-3.5"
+          >
+            <div className="w-10 h-10 rounded-xl bg-purple-50 border border-purple-200 text-purple-600 flex items-center justify-center shrink-0 group-hover:bg-purple-600 group-hover:text-white transition-colors">
+              <i className="fa-solid fa-calendar-days text-base" />
+            </div>
+            <div>
+              <p className="text-xs font-bold text-slate-800 group-hover:text-purple-700 transition">
+                Kalender Akademik
+              </p>
+              <p className="text-[11px] text-slate-500 mt-0.5">Jadwal kegiatan & ujian sekolah</p>
+            </div>
+          </Link>
         </div>
       </div>
 
