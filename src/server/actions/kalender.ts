@@ -21,13 +21,17 @@ export async function tambahKegiatanKalender(formData: FormData): Promise<void> 
 
   if (!activeSemester) return;
 
+  let tMulai = new Date(tanggalMulaiStr);
+  if (isNaN(tMulai.getTime())) tMulai = new Date();
+  const tSelesai = tanggalSelesaiStr && !isNaN(new Date(tanggalSelesaiStr).getTime()) ? new Date(tanggalSelesaiStr) : null;
+
   await db.kalenderAkademik.create({
     data: {
       semesterId: activeSemester.id,
       judulKegiatan,
       kategori,
-      tanggalMulai: new Date(tanggalMulaiStr),
-      tanggalSelesai: tanggalSelesaiStr ? new Date(tanggalSelesaiStr) : null,
+      tanggalMulai: tMulai,
+      tanggalSelesai: tSelesai,
       keterangan,
     },
   });

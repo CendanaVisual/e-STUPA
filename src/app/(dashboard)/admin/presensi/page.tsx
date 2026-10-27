@@ -22,7 +22,10 @@ export default async function AdminPresensiPage({
 
   const selectedRombelId = rawRombelId || rombelList[0]?.id || "";
   const selectedDateStr = rawDate || new Date().toISOString().split("T")[0];
-  const selectedDate = new Date(selectedDateStr);
+  let selectedDate = new Date(selectedDateStr);
+  if (isNaN(selectedDate.getTime())) {
+    selectedDate = new Date();
+  }
 
   const selectedRombel = selectedRombelId
     ? await db.rombel.findUnique({

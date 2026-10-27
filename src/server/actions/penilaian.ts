@@ -128,19 +128,40 @@ export async function tambahKolomPenilaian(formData: FormData): Promise<void> {
 
   if (!pembelajaranId || !kategori || !nama) return;
 
-  const count = await db.penilaian.count({
+  const last = await db.penilaian.findFirst({
     where: { pembelajaranId, kategori },
+    orderBy: { urutan: "desc" },
   });
+  const nextUrutan = (last?.urutan || 0) + 1;
 
   await db.penilaian.create({
     data: {
       pembelajaranId,
       kategori,
-      urutan: count + 1,
+      urutan: nextUrutan,
       nama,
       tujuanPembelajaran,
     },
   });
 
+  revalidatePath(`/guru/nilai/${pembelajaranId}`);
+}
+
+export async function generateDefaultPenilaian(formData: FormData): Promise<void> {
+  await requireAuth();
+  const pembelajaranId = formData.get("pembelajaranId") as string;
+  if (!pembelajaranId) return;
+
+  const count = await db.penilaian.count({ where: { pembelajaranId } });
+  if (count === 0) {
+    await db.penilaian.createMany({
+      data: [
+        { pembelajaranId, kategori: "HARIAN", urutan: 1, nama: "TP 1", tujuanPembelajaran: "Formatif TP 1" },
+        { pembelajaranId, kategori: "HARIAN", urutan: 2, nama: "TP 2", tujuanPembelajaran: "Formatif TP 2" },
+        { pembelajaranId, kategori: "UTS", urutan: 1, nama: "STS" },
+        { pembelajaranId, kategori: "UAS", urutan: 1, nama: "SAS" },
+      ],
+    });
+  }
   revalidatePath(`/guru/nilai/${pembelajaranId}`);
 }

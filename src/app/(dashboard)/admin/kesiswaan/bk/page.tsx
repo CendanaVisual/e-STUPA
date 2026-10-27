@@ -192,12 +192,11 @@ export default async function AdminBkPage() {
                     </div>
 
                     <div className="flex items-center gap-2">
-                      <form action={updateStatusBk} className="inline">
+                      <form action={updateStatusBk} className="inline-flex items-center gap-1">
                         <input type="hidden" name="id" value={item.id} />
                         <select
                           name="status"
                           defaultValue={item.status}
-                          onChange={(e) => e.target.form?.requestSubmit()}
                           className={`px-2 py-0.5 rounded-full text-[10px] font-bold border cursor-pointer ${
                             item.status === "Selesai"
                               ? "bg-emerald-50 text-emerald-700 border-emerald-200"
@@ -210,6 +209,13 @@ export default async function AdminBkPage() {
                           <option value="Selesai">Selesai</option>
                           <option value="Dirujuk">Dirujuk</option>
                         </select>
+                        <button
+                          type="submit"
+                          title="Simpan Perubahan Status"
+                          className="px-1.5 py-0.5 rounded-md bg-slate-100 hover:bg-slate-200 text-[10px] font-bold text-slate-600 transition cursor-pointer"
+                        >
+                          Simpan
+                        </button>
                       </form>
 
                       <form action={hapusBk} className="inline">

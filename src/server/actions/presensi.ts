@@ -24,7 +24,10 @@ export async function simpanPresensiHarian(formData: FormData): Promise<void> {
 
   if (!rombel) return;
 
-  const tanggal = new Date(tanggalStr);
+  let tanggal = new Date(tanggalStr);
+  if (isNaN(tanggal.getTime())) {
+    tanggal = new Date();
+  }
 
   await db.presensi.upsert({
     where: {
@@ -67,7 +70,10 @@ export async function simpanPresensiKelasBatch(formData: FormData): Promise<void
 
   if (!rombel) return;
 
-  const tanggal = new Date(tanggalStr);
+  let tanggal = new Date(tanggalStr);
+  if (isNaN(tanggal.getTime())) {
+    tanggal = new Date();
+  }
 
   // Ambil semua entri form untuk siswa
   const entries = Array.from(formData.entries());

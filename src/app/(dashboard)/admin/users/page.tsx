@@ -179,7 +179,8 @@ export default async function UsersManagementPage() {
                       </span>
                     </td>
                     <td className="py-3 px-3 text-right">
-                      <form action={toggleUserStatus.bind(null, u.id)}>
+                      <form action={toggleUserStatus}>
+                        <input type="hidden" name="userId" value={u.id} />
                         <button
                           type="submit"
                           className="px-2.5 py-1 rounded-lg border border-slate-200 hover:bg-slate-100 text-[11px] font-bold text-slate-600 transition cursor-pointer"

@@ -5,15 +5,19 @@ import { db } from "@/lib/db";
 import { requireRole } from "@/lib/auth/session";
 import { aktifkanSemester, kunciSemester, salinRombel } from "@/lib/services/semester";
 
-export async function actionAktifkanSemester(semesterId: string): Promise<void> {
+export async function actionAktifkanSemester(input: FormData | string): Promise<void> {
   await requireRole("SUPERADMIN");
+  const semesterId = typeof input === "string" ? input : String(input.get("semesterId") || "");
+  if (!semesterId) return;
   await aktifkanSemester(semesterId);
   revalidatePath("/admin/tahun-ajaran");
   revalidatePath("/admin");
 }
 
-export async function actionKunciSemester(semesterId: string): Promise<void> {
+export async function actionKunciSemester(input: FormData | string): Promise<void> {
   await requireRole("SUPERADMIN");
+  const semesterId = typeof input === "string" ? input : String(input.get("semesterId") || "");
+  if (!semesterId) return;
   await kunciSemester(semesterId);
   revalidatePath("/admin/tahun-ajaran");
   revalidatePath("/admin");

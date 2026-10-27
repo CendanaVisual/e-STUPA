@@ -33,7 +33,7 @@ interface ExportMetrics {
 
 export async function buildEraporWorkbook(pembelajaranId: string) {
   const [p, sekolah] = await Promise.all([
-    db.pembelajaran.findUniqueOrThrow({
+    db.pembelajaran.findUnique({
       where: { id: pembelajaranId },
       include: {
         mapel: true,
@@ -53,6 +53,10 @@ export async function buildEraporWorkbook(pembelajaranId: string) {
     }),
     db.sekolah.findFirst(),
   ]);
+
+  if (!p) {
+    throw new Error("Pembelajaran tidak ditemukan");
+  }
 
   const kktp = p.kktp ?? 75;
   const bobotTP = (p.bobotHarian ?? 30) / 100;

@@ -35,8 +35,11 @@ export async function createUser(formData: FormData): Promise<void> {
   revalidatePath("/admin/users");
 }
 
-export async function toggleUserStatus(userId: string): Promise<void> {
+export async function toggleUserStatus(input: FormData | string): Promise<void> {
   await requireRole("SUPERADMIN");
+
+  const userId = typeof input === "string" ? input : String(input.get("userId") || "");
+  if (!userId) return;
 
   const user = await db.user.findUnique({ where: { id: userId } });
   if (!user) return;

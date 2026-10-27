@@ -2,7 +2,11 @@ import { requireRole } from "@/lib/auth/session";
 import { assertPembelajaranAccess } from "@/lib/auth/rbac";
 import { db } from "@/lib/db";
 import { notFound } from "next/navigation";
-import { simpanNilaiBatch, tambahKolomPenilaian } from "@/server/actions/penilaian";
+import {
+  simpanNilaiBatch,
+  tambahKolomPenilaian,
+  generateDefaultPenilaian,
+} from "@/server/actions/penilaian";
 
 export default async function InputNilaiPage({
   params,
@@ -17,7 +21,7 @@ export default async function InputNilaiPage({
     notFound();
   }
 
-  const p = await db.pembelajaran.findUniqueOrThrow({
+  const p = await db.pembelajaran.findUnique({
     where: { id: pembelajaranId },
     include: {
       mapel: true,
@@ -35,23 +39,11 @@ export default async function InputNilaiPage({
     },
   });
 
-  // Jika belum ada kolom penilaian sama sekali, auto-generate TP 1, TP 2, UTS, UAS
-  if (p.penilaian.length === 0) {
-    await db.penilaian.createMany({
-      data: [
-        { pembelajaranId: p.id, kategori: "HARIAN", urutan: 1, nama: "TP 1", tujuanPembelajaran: "Memahami konsep materi dasar" },
-        { pembelajaranId: p.id, kategori: "HARIAN", urutan: 2, nama: "TP 2", tujuanPembelajaran: "Menerapkan prinsip materi dalam tugas" },
-        { pembelajaranId: p.id, kategori: "UTS", urutan: 1, nama: "Sumatif Tengah Semester (STS)" },
-        { pembelajaranId: p.id, kategori: "UAS", urutan: 1, nama: "Sumatif Akhir Semester (SAS)" },
-      ],
-    });
+  if (!p) {
+    notFound();
   }
 
-  // Ambil ulang penilaian & nilai yang sudah tersimpan
-  const penilaianList = await db.penilaian.findMany({
-    where: { pembelajaranId: p.id },
-    orderBy: [{ kategori: "asc" }, { urutan: "asc" }],
-  });
+  const penilaianList = p.penilaian;
 
   const allNilai = await db.nilai.findMany({
     where: { penilaianId: { in: penilaianList.map((k) => k.id) } },
@@ -130,6 +122,19 @@ export default async function InputNilaiPage({
             Tambah Kolom
           </button>
         </form>
+
+        {penilaianList.length === 0 && (
+          <form action={generateDefaultPenilaian}>
+            <input type="hidden" name="pembelajaranId" value={p.id} />
+            <button
+              type="submit"
+              className="py-1.5 px-3.5 rounded-xl bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-700 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
+            >
+              <i className="fa-solid fa-wand-magic-sparkles text-xs" />
+              <span>Buat Kolom Standar (TP 1, TP 2, STS, SAS)</span>
+            </button>
+          </form>
+        )}
 
         <div className="text-xs text-slate-500 font-medium">
           Total: <span className="font-bold text-slate-800">{p.rombel.anggota.length} Siswa</span> •{" "}

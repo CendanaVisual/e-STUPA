@@ -33,7 +33,7 @@ export async function tambahPrestasi(formData: FormData): Promise<void> {
       tingkat,
       peringkat,
       penyelenggara,
-      tanggal: tanggalStr ? new Date(tanggalStr) : null,
+      tanggal: tanggalStr && !isNaN(new Date(tanggalStr).getTime()) ? new Date(tanggalStr) : null,
       keterangan,
     },
   });
@@ -75,6 +75,9 @@ export async function tambahBk(formData: FormData): Promise<void> {
     select: { gtkId: true },
   });
 
+  let validDate = new Date(tanggalStr);
+  if (isNaN(validDate.getTime())) validDate = new Date();
+
   await db.bimbinganKonseling.create({
     data: {
       semesterId: activeSemester.id,
@@ -83,7 +86,7 @@ export async function tambahBk(formData: FormData): Promise<void> {
       permasalahan,
       tindakLanjut,
       status,
-      tanggal: new Date(tanggalStr),
+      tanggal: validDate,
       guruBkId: user?.gtkId || null,
     },
   });
@@ -135,6 +138,9 @@ export async function tambahJurnal(formData: FormData): Promise<void> {
 
   if (!activeSemester) return;
 
+  let validJurnalDate = new Date(tanggalStr);
+  if (isNaN(validJurnalDate.getTime())) validJurnalDate = new Date();
+
   await db.jurnalPerkembangan.create({
     data: {
       semesterId: activeSemester.id,
@@ -143,7 +149,7 @@ export async function tambahJurnal(formData: FormData): Promise<void> {
       catatan,
       butirSikap,
       tindakLanjut,
-      tanggal: new Date(tanggalStr),
+      tanggal: validJurnalDate,
     },
   });
 

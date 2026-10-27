@@ -153,10 +153,11 @@ export default async function TahunAjaranPage() {
                     {/* Action buttons */}
                     <div className="flex items-center gap-2 pt-2 border-t border-slate-100/80">
                       {!sem.isAktif && (
-                        <form action={actionAktifkanSemester.bind(null, sem.id)} className="w-full">
+                        <form action={actionAktifkanSemester} className="w-full">
+                          <input type="hidden" name="semesterId" value={sem.id} />
                           <button
                             type="submit"
-                            className="w-full py-1.5 rounded-xl btn-soft-primary text-[11px] font-bold"
+                            className="w-full py-1.5 rounded-xl btn-soft-primary text-[11px] font-bold cursor-pointer"
                           >
                             Aktifkan Semester Ini
                           </button>
@@ -164,7 +165,8 @@ export default async function TahunAjaranPage() {
                       )}
 
                       {sem.isAktif && sem.status === "AKTIF" && (
-                        <form action={actionKunciSemester.bind(null, sem.id)} className="w-full">
+                        <form action={actionKunciSemester} className="w-full">
+                          <input type="hidden" name="semesterId" value={sem.id} />
                           <button
                             type="submit"
                             className="w-full py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-800 text-[11px] font-bold transition flex items-center justify-center gap-1.5 cursor-pointer"
