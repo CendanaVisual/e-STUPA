@@ -13,6 +13,15 @@ export default function RootError({
     console.error("[Root Error]", error);
   }, [error]);
 
+  const isMinifiedOrRSC =
+    error?.message?.includes("Minified React error") ||
+    error?.message?.includes("Server Components render") ||
+    !error?.message;
+
+  const displayMessage = isMinifiedOrRSC
+    ? "Aplikasi mengalami kendala sinkronisasi render server. Silakan coba lagi atau kembali ke halaman masuk."
+    : error.message;
+
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6 text-center text-slate-800">
       <div className="w-16 h-16 rounded-3xl bg-rose-50 border border-rose-200 text-rose-600 flex items-center justify-center text-2xl shadow-sm mb-4">
@@ -23,11 +32,17 @@ export default function RootError({
         Terjadi Kesalahan Sistem
       </h1>
 
-      <p className="text-xs sm:text-sm text-slate-500 max-w-md mt-2 mb-6">
-        {error.message || "Aplikasi mengalami kendala sementara saat menghubungkan ke database atau memproses permintaan Anda."}
+      <p className="text-xs sm:text-sm text-slate-500 max-w-md mt-2 mb-2">
+        {displayMessage}
       </p>
 
-      <div className="flex items-center gap-3">
+      {error?.digest && (
+        <p className="font-mono text-[10px] text-slate-400 mb-6 bg-white px-2.5 py-1 rounded-md border border-slate-200">
+          Digest ID: {error.digest}
+        </p>
+      )}
+
+      <div className="flex items-center gap-3 mt-2">
         <button
           onClick={() => reset()}
           className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition shadow-md shadow-blue-500/15 flex items-center gap-2 cursor-pointer"

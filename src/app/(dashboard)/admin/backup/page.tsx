@@ -49,7 +49,7 @@ export default async function BackupArsipPage() {
                 Snapshot Arsip Semester
               </h3>
               <p className="text-[11px] text-slate-500">
-                Semester Aktif: {semester ? `${semester.tahunAjaran.nama} — ${semester.tipe}` : "Belum Ada"}
+                Semester Aktif: {semester ? `${semester.tahunAjaran?.nama ?? "2026/2027"} — ${semester.tipe}` : "Belum Ada"}
               </p>
             </div>
           </div>
@@ -113,7 +113,7 @@ export default async function BackupArsipPage() {
                       <td className="py-3 px-3 font-semibold text-slate-700">{b.jenis}</td>
                       <td className="py-3 px-3">
                         {b.semester
-                          ? `${b.semester.tahunAjaran.nama} (${b.semester.tipe})`
+                          ? `${b.semester.tahunAjaran?.nama ?? "2026/2027"} (${b.semester.tipe})`
                           : "-"}
                       </td>
                       <td className="py-3 px-3 text-center font-mono font-bold text-blue-700">

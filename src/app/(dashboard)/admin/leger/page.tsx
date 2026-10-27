@@ -93,7 +93,7 @@ export default async function AdminLegerPage({
             </span>
             <span className="text-slate-400 text-xs">•</span>
             <span className="text-xs text-slate-500 font-medium">
-              T.A. {activeSemester?.tahunAjaran.nama ?? "2026/2027"} ({activeSemester?.tipe ?? "GANJIL"})
+              T.A. {activeSemester?.tahunAjaran?.nama ?? "2026/2027"} ({activeSemester?.tipe ?? "GANJIL"})
             </span>
           </div>
           <h1 className="text-2xl font-black text-slate-900 tracking-tight">

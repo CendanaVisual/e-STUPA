@@ -85,7 +85,7 @@ export default async function AdminDashboard() {
             Status Semester Akademik
           </span>
           <p className="text-sm font-extrabold text-blue-700">
-            {semester ? `${semester.tahunAjaran.nama} — ${semester.tipe}` : "Belum Disetel"}
+            {semester ? `${semester.tahunAjaran?.nama ?? "2026/2027"} — ${semester.tipe}` : "Belum Disetel"}
           </p>
           <span className="px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-mono font-bold mt-1">
             Status: {semester?.status ?? "DRAFT"}

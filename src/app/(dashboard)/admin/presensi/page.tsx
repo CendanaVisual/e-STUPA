@@ -81,7 +81,7 @@ export default async function AdminPresensiPage({
             </span>
             <span className="text-slate-400 text-xs">•</span>
             <span className="text-xs text-slate-500 font-medium">
-              T.A. {activeSemester?.tahunAjaran.nama ?? "2026/2027"}
+              T.A. {activeSemester?.tahunAjaran?.nama ?? "2026/2027"}
             </span>
           </div>
           <h1 className="text-2xl font-black text-slate-900 tracking-tight">

@@ -69,7 +69,7 @@ export default async function InputNilaiPage({
             </span>
             <span className="text-slate-400 text-xs">•</span>
             <span className="text-xs text-slate-500 font-medium">
-              {p.semester.tahunAjaran.nama} {p.semester.tipe}
+              {p.semester?.tahunAjaran?.nama ?? "2026/2027"} {p.semester?.tipe ?? ""}
             </span>
           </div>
           <h1 className="text-2xl font-black text-slate-900 tracking-tight">

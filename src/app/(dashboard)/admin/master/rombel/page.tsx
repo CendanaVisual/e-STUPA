@@ -28,7 +28,7 @@ export default async function DataRombelPage() {
           </h1>
           <p className="text-xs sm:text-sm text-slate-500 mt-1">
             Daftar kelas pada semester aktif (
-            {semester ? `${semester.tahunAjaran.nama} — ${semester.tipe}` : "Belum Aktif"}). Terintegrasi dengan wali kelas dan pembagian anggota rombel.
+            {semester ? `${semester.tahunAjaran?.nama ?? "2026/2027"} — ${semester.tipe}` : "Belum Aktif"}). Terintegrasi dengan wali kelas dan pembagian anggota rombel.
           </p>
         </div>
 
