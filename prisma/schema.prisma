@@ -310,6 +310,7 @@ model Rombel {
   anggota      AnggotaRombel[]
   pembelajaran Pembelajaran[]
   presensi     Presensi[]
+  jurnal       JurnalPerkembangan[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -563,12 +564,14 @@ model PrestasiSiswa {
   siswa         Siswa     @relation(fields: [siswaId], references: [id], onDelete: Cascade)
   namaPrestasi  String
   kategori      String    @default("Akademik") // Akademik / Non-Akademik
-  tingkat       String    @default("Sekolah") // Sekolah / Kecamatan / Kabupaten / Provinsi / Nasional / Internasional
+  bidang        String?
+  tingkat       String    @default("Sekolah") // Sekolah / Kecamatan / Kota/Kabupaten / Provinsi / Nasional / Internasional
   peringkat     String    // Juara 1, Juara 2, Juara 3, Harapan 1, Peserta, dll.
   penyelenggara String?
   tanggal       DateTime? @db.Date
   keterangan    String?
   buktiUrl      String?
+  status        String    @default("terverifikasi") // draft / terverifikasi / ditolak
 
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
@@ -588,7 +591,8 @@ model BimbinganKonseling {
   kategori     String    @default("Belajar") // Pribadi / Sosial / Belajar / Karier / Kedisiplinan
   permasalahan String
   tindakLanjut String?
-  status       String    @default("Dalam Penanganan") // Dalam Penanganan / Selesai / Dirujuk
+  status       String    @default("Dalam Penanganan") // Terbuka / Dalam Pendampingan / Terpantau / Selesai / Dirujuk
+  kerahasiaan  String    @default("wali") // wali / ringkasan / pribadi
   guruBkId     String?
   guruBk       Gtk?      @relation(fields: [guruBkId], references: [id], onDelete: SetNull)
 
@@ -604,9 +608,12 @@ model JurnalPerkembangan {
   id            String   @id @default(cuid())
   semesterId    String
   semester      Semester @relation(fields: [semesterId], references: [id], onDelete: Cascade)
+  rombelId      String?
+  rombel        Rombel?  @relation(fields: [rombelId], references: [id], onDelete: SetNull)
   siswaId       String
   siswa         Siswa    @relation(fields: [siswaId], references: [id], onDelete: Cascade)
   tanggal       DateTime @db.Date
+  mapel         String?
   dimensiProfil String   // Beriman & Bertakwa, Berkebinekaan Global, Gotong Royong, Mandiri, Bernalar Kritis, Kreatif
   catatan       String
   butirSikap    String?  // Positif / Perlu Pembinaan
@@ -624,9 +631,12 @@ model Ekstrakurikuler {
   id          String        @id @default(cuid())
   nama        String        @unique
   kategori    String?       // Olahraga, Kesenian, Kepanduan/Pramuka, Sains, Keagamaan
+  deskripsi   String?
   pembina     String?
   hari        String?
   jam         String?
+  kuota       Int?
+  lokasi      String?
   isAktif     Boolean       @default(true)
 
   nilaiEkskul NilaiEkskul[]

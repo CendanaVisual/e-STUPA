@@ -64,7 +64,7 @@ const NAV: NavItem[] = [
   },
   {
     href: "/guru/kesiswaan/jurnal",
-    label: "Jurnal Sikap Murid",
+    label: "Jurnal Perkembangan Murid",
     icon: "fa-solid fa-book-journal-whills",
     category: "Kesiswaan",
   },

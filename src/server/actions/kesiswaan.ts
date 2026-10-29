@@ -8,13 +8,16 @@ export async function tambahPrestasi(formData: FormData): Promise<void> {
   await requireAuth();
 
   const siswaId = formData.get("siswaId") as string;
-  const namaPrestasi = formData.get("namaPrestasi") as string;
+  const namaPrestasi = (formData.get("namaPrestasi") as string)?.trim();
   const kategori = (formData.get("kategori") as string) || "Akademik";
+  const bidang = (formData.get("bidang") as string)?.trim() || null;
   const tingkat = (formData.get("tingkat") as string) || "Sekolah";
-  const peringkat = formData.get("peringkat") as string;
-  const penyelenggara = (formData.get("penyelenggara") as string) || null;
+  const peringkat = (formData.get("peringkat") as string)?.trim();
+  const penyelenggara = (formData.get("penyelenggara") as string)?.trim() || null;
   const tanggalStr = formData.get("tanggal") as string;
-  const keterangan = (formData.get("keterangan") as string) || null;
+  const keterangan = (formData.get("keterangan") as string)?.trim() || null;
+  const buktiUrl = (formData.get("buktiUrl") as string)?.trim() || null;
+  const status = (formData.get("status") as string) || "terverifikasi";
 
   if (!siswaId || !namaPrestasi || !peringkat) return;
 
@@ -30,12 +33,31 @@ export async function tambahPrestasi(formData: FormData): Promise<void> {
       siswaId,
       namaPrestasi,
       kategori,
+      bidang,
       tingkat,
       peringkat,
       penyelenggara,
       tanggal: tanggalStr && !isNaN(new Date(tanggalStr).getTime()) ? new Date(tanggalStr) : null,
       keterangan,
+      buktiUrl,
+      status,
     },
+  });
+
+  revalidatePath("/admin/kesiswaan/prestasi");
+  revalidatePath("/guru/kesiswaan/prestasi");
+}
+
+export async function setPrestasiStatus(formData: FormData): Promise<void> {
+  await requireAuth();
+
+  const id = formData.get("id") as string;
+  const status = formData.get("status") as string;
+  if (!id || !status) return;
+
+  await db.prestasiSiswa.update({
+    where: { id },
+    data: { status },
   });
 
   revalidatePath("/admin/kesiswaan/prestasi");
@@ -57,9 +79,10 @@ export async function tambahBk(formData: FormData): Promise<void> {
 
   const siswaId = formData.get("siswaId") as string;
   const kategori = (formData.get("kategori") as string) || "Belajar";
-  const permasalahan = formData.get("permasalahan") as string;
-  const tindakLanjut = (formData.get("tindakLanjut") as string) || null;
-  const status = (formData.get("status") as string) || "Dalam Penanganan";
+  const permasalahan = (formData.get("permasalahan") as string)?.trim();
+  const tindakLanjut = (formData.get("tindakLanjut") as string)?.trim() || null;
+  const status = (formData.get("status") as string) || "Dalam Pendampingan";
+  const kerahasiaan = (formData.get("kerahasiaan") as string) || "wali";
   const tanggalStr = (formData.get("tanggal") as string) || new Date().toISOString().split("T")[0];
 
   if (!siswaId || !permasalahan) return;
@@ -86,6 +109,7 @@ export async function tambahBk(formData: FormData): Promise<void> {
       permasalahan,
       tindakLanjut,
       status,
+      kerahasiaan,
       tanggal: validDate,
       guruBkId: user?.gtkId || null,
     },
@@ -124,13 +148,15 @@ export async function tambahJurnal(formData: FormData): Promise<void> {
   await requireAuth();
 
   const siswaId = formData.get("siswaId") as string;
-  const dimensiProfil = formData.get("dimensiProfil") as string;
-  const catatan = formData.get("catatan") as string;
+  const rombelId = (formData.get("rombelId") as string) || null;
+  const mapel = (formData.get("mapel") as string)?.trim() || null;
+  const dimensiProfil = (formData.get("dimensiProfil") as string) || "Mandiri";
+  const catatan = (formData.get("catatan") as string)?.trim();
   const butirSikap = (formData.get("butirSikap") as string) || "Positif";
-  const tindakLanjut = (formData.get("tindakLanjut") as string) || null;
+  const tindakLanjut = (formData.get("tindakLanjut") as string)?.trim() || null;
   const tanggalStr = (formData.get("tanggal") as string) || new Date().toISOString().split("T")[0];
 
-  if (!siswaId || !dimensiProfil || !catatan) return;
+  if (!siswaId || !catatan) return;
 
   const activeSemester = await db.semester.findFirst({
     where: { isAktif: true },
@@ -145,6 +171,8 @@ export async function tambahJurnal(formData: FormData): Promise<void> {
     data: {
       semesterId: activeSemester.id,
       siswaId,
+      rombelId,
+      mapel,
       dimensiProfil,
       catatan,
       butirSikap,

@@ -91,7 +91,7 @@ const NAV: NavItem[] = [
   },
   {
     href: "/admin/kesiswaan/jurnal",
-    label: "Jurnal Sikap & P5",
+    label: "Jurnal Perkembangan Murid",
     icon: "fa-solid fa-book-journal-whills",
     category: "Kesiswaan & Presensi",
   },
