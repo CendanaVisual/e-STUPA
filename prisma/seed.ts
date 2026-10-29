@@ -13,40 +13,33 @@ async function main() {
     // Abaikan jika tabel belum ada atau constraint sudah terhapus
   }
 
-  // 1. DATA SEKOLAH
-  const sekolah = await db.sekolah.upsert({
-    where: { npsn: "50102030" },
-    update: {
-      nama: "SDN 7 Pedungan",
-      bentukPendidikan: "SD",
-      alamat: "Jl. Pulau Moyo No. 45",
-      desaKelurahan: "Pedungan",
-      kecamatan: "Denpasar Selatan",
-      kabupatenKota: "Kota Denpasar",
-      provinsi: "Bali",
-      kodePos: "80222",
-      telepon: "(0361) 720123",
-      email: "sdn7pedungan@denpasarkota.go.id",
-      namaKepsek: "Drs. I Made Sujana, M.Pd.",
-      nipKepsek: "196805121992031008",
-    },
-    create: {
-      npsn: "50102030",
-      nama: "SDN 7 Pedungan",
-      bentukPendidikan: "SD",
-      alamat: "Jl. Pulau Moyo No. 45",
-      desaKelurahan: "Pedungan",
-      kecamatan: "Denpasar Selatan",
-      kabupatenKota: "Kota Denpasar",
-      provinsi: "Bali",
-      kodePos: "80222",
-      telepon: "(0361) 720123",
-      email: "sdn7pedungan@denpasarkota.go.id",
-      namaKepsek: "Drs. I Made Sujana, M.Pd.",
-      nipKepsek: "196805121992031008",
-    },
-  });
-  console.log(`✅ Sekolah: ${sekolah.nama}`);
+  // 1. DATA SEKOLAH (Jaga agar tetap singleton 1 baris sekolah)
+  const existingSekolah = await db.sekolah.findFirst();
+  const sekolahData = {
+    npsn: existingSekolah?.npsn || "50103069",
+    nama: existingSekolah?.nama || "SD Negeri 7 Pedungan",
+    bentukPendidikan: "SD",
+    alamat: existingSekolah?.alamat || "Jl. Pulau Moyo No. 63 Pedungan",
+    desaKelurahan: "Pedungan",
+    kecamatan: "Denpasar Selatan",
+    kabupatenKota: "Kota Denpasar",
+    provinsi: "Bali",
+    kodePos: "80222",
+    telepon: "(0361) 720123",
+    email: existingSekolah?.email || "sdn7pedungan63@gmail.com",
+    namaKepsek: "Drs. I Made Sujana, M.Pd.",
+    nipKepsek: "196805121992031008",
+  };
+
+  const sekolah = existingSekolah
+    ? await db.sekolah.update({
+        where: { id: existingSekolah.id },
+        data: sekolahData,
+      })
+    : await db.sekolah.create({
+        data: sekolahData,
+      });
+  console.log(`✅ Sekolah: ${sekolah.nama} (NPSN: ${sekolah.npsn})`);
 
   // 2. TAHUN AJARAN & SEMESTER
   const ta = await db.tahunAjaran.upsert({
