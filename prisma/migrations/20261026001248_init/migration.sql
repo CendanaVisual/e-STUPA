@@ -519,5 +519,5 @@ ALTER TABLE "nilai_rapor" ADD CONSTRAINT "nilai_rapor_akhir_range_chk" CHECK ("n
 -- Total bobot = 100
 ALTER TABLE "pembelajaran" ADD CONSTRAINT "pembelajaran_bobot_chk" CHECK ("bobotHarian" + "bobotUts" + "bobotUas" = 100);
 
--- Akun GURU wajib tertaut ke GTK
-ALTER TABLE "users" ADD CONSTRAINT "users_guru_gtk_chk" CHECK ("role" <> 'GURU' OR "gtkId" IS NOT NULL);
+-- Akun GURU dapat dibuat fleksibel tanpa wajib langsung tertaut ke GTK (GTK dapat ditautkan menyusul)
+-- ALTER TABLE "users" ADD CONSTRAINT "users_guru_gtk_chk" CHECK ("role" <> 'GURU' OR "gtkId" IS NOT NULL);

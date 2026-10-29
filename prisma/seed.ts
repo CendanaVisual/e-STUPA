@@ -6,6 +6,13 @@ const db = new PrismaClient();
 async function main() {
   console.log("🚀 Memulai seeding data STUPA & EduGuru...");
 
+  // Pastikan constraint users_guru_gtk_chk dicabut agar akun guru fleksibel
+  try {
+    await db.$executeRawUnsafe(`ALTER TABLE "users" DROP CONSTRAINT IF EXISTS "users_guru_gtk_chk";`);
+  } catch {
+    // Abaikan jika tabel belum ada atau constraint sudah terhapus
+  }
+
   // 1. DATA SEKOLAH
   const sekolah = await db.sekolah.upsert({
     where: { npsn: "50102030" },

@@ -731,9 +731,17 @@ export function UsersClient({ initialUsers, allGtks, currentUserId }: UsersClien
                     );
                   })}
                 </select>
-                <p className="text-[10px] text-slate-400 mt-1">
-                  Menautkan akun ke GTK memungkinkan guru otomatis melihat jadwal mengajar & rombelnya.
-                </p>
+                {gtksWithoutAccount.length === 0 && addForm.role === "GURU" && (
+                  <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2 mt-2">
+                    <i className="fa-solid fa-circle-info mr-1" />
+                    Seluruh GTK aktif saat ini sudah memiliki akun login. Anda dapat tetap membuat akun guru ini tanpa tautan GTK, dan menautkannya ke GTK nanti saat data GTK baru ditambahkan.
+                  </p>
+                )}
+                {gtksWithoutAccount.length > 0 && (
+                  <p className="text-[10px] text-slate-400 mt-1">
+                    Menautkan akun ke GTK memungkinkan guru otomatis melihat jadwal mengajar & rombelnya.
+                  </p>
+                )}
               </div>
 
               <div>

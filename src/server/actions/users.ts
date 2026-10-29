@@ -82,15 +82,34 @@ export async function createUser(
     }
 
     const passwordHash = await bcrypt.hash(password, 12);
-    await db.user.create({
-      data: {
-        username,
-        passwordHash,
-        role,
-        gtkId,
-        isActive: true,
-      },
-    });
+    try {
+      await db.user.create({
+        data: {
+          username,
+          passwordHash,
+          role,
+          gtkId,
+          isActive: true,
+        },
+      });
+    } catch (createErr: unknown) {
+      const errMsg = createErr instanceof Error ? createErr.message : String(createErr);
+      if (errMsg.includes("users_guru_gtk_chk") || (createErr as { code?: string })?.code === "23514") {
+        console.log("[createUser] Detected legacy check constraint users_guru_gtk_chk. Auto-healing by dropping constraint...");
+        await db.$executeRawUnsafe(`ALTER TABLE "users" DROP CONSTRAINT IF EXISTS "users_guru_gtk_chk";`);
+        await db.user.create({
+          data: {
+            username,
+            passwordHash,
+            role,
+            gtkId,
+            isActive: true,
+          },
+        });
+      } else {
+        throw createErr;
+      }
+    }
 
     revalidatePath("/admin/users");
     return { success: true, message: `Akun "${username}" berhasil dibuat.` };
@@ -166,15 +185,34 @@ export async function updateUser(data: {
       }
     }
 
-    await db.user.update({
-      where: { id: data.id },
-      data: {
-        username,
-        role: data.role,
-        gtkId: newGtkId,
-        isActive: data.isActive !== undefined ? data.isActive : targetUser.isActive,
-      },
-    });
+    try {
+      await db.user.update({
+        where: { id: data.id },
+        data: {
+          username,
+          role: data.role,
+          gtkId: newGtkId,
+          isActive: data.isActive !== undefined ? data.isActive : targetUser.isActive,
+        },
+      });
+    } catch (updateErr: unknown) {
+      const errMsg = updateErr instanceof Error ? updateErr.message : String(updateErr);
+      if (errMsg.includes("users_guru_gtk_chk") || (updateErr as { code?: string })?.code === "23514") {
+        console.log("[updateUser] Detected legacy check constraint users_guru_gtk_chk. Auto-healing by dropping constraint...");
+        await db.$executeRawUnsafe(`ALTER TABLE "users" DROP CONSTRAINT IF EXISTS "users_guru_gtk_chk";`);
+        await db.user.update({
+          where: { id: data.id },
+          data: {
+            username,
+            role: data.role,
+            gtkId: newGtkId,
+            isActive: data.isActive !== undefined ? data.isActive : targetUser.isActive,
+          },
+        });
+      } else {
+        throw updateErr;
+      }
+    }
 
     revalidatePath("/admin/users");
     return { success: true, message: `Akun "${username}" berhasil diperbarui.` };
@@ -341,15 +379,33 @@ export async function autoGenerateTeacherAccounts(defaultPassword = "guru123456"
         counter++;
       }
 
-      await db.user.create({
-        data: {
-          username: finalUsername,
-          passwordHash,
-          role: "GURU",
-          gtkId: gtk.id,
-          isActive: true,
-        },
-      });
+      try {
+        await db.user.create({
+          data: {
+            username: finalUsername,
+            passwordHash,
+            role: "GURU",
+            gtkId: gtk.id,
+            isActive: true,
+          },
+        });
+      } catch (autoErr: unknown) {
+        const errMsg = autoErr instanceof Error ? autoErr.message : String(autoErr);
+        if (errMsg.includes("users_guru_gtk_chk") || (autoErr as { code?: string })?.code === "23514") {
+          await db.$executeRawUnsafe(`ALTER TABLE "users" DROP CONSTRAINT IF EXISTS "users_guru_gtk_chk";`);
+          await db.user.create({
+            data: {
+              username: finalUsername,
+              passwordHash,
+              role: "GURU",
+              gtkId: gtk.id,
+              isActive: true,
+            },
+          });
+        } else {
+          throw autoErr;
+        }
+      }
       createdCount++;
     }
 
