@@ -6,6 +6,7 @@ import {
   hapusPesertaEkskul,
 } from "@/server/actions/ekskul";
 import Link from "next/link";
+import { EkskulMasterClient } from "./ekskul-master-client";
 
 export default async function AdminMasterEkskulPage(props: {
   searchParams?: Promise<{ tab?: string; ekskulId?: string; modal?: string }>;
@@ -136,93 +137,22 @@ export default async function AdminMasterEkskulPage(props: {
       {/* TAB 1: MASTER KEGIATAN */}
       {activeTab === "master" && (
         <div className="bg-white rounded-[2rem] p-5 md:p-7 shadow-xs border border-slate-200/90 space-y-4">
-          <div className="flex flex-wrap justify-between items-center gap-3 pb-3 border-b border-slate-100">
-            <div className="text-xs font-black uppercase tracking-widest text-slate-400">
-              {ekskulList.length} KEGIATAN · TA {taNama}
-            </div>
-
-            <Link
-              href={`/admin/master/ekskul?tab=master&modal=tambah`}
-              className="px-5 py-2.5 rounded-full bg-[#0284c7] hover:bg-[#0369a1] text-white font-bold text-xs shadow-md shadow-sky-600/20 flex items-center gap-2 transition"
-            >
-              <i className="fa-solid fa-plus text-xs" />
-              <span>Tambah Ekskul</span>
-            </Link>
-          </div>
-
-          {ekskulList.length === 0 ? (
-            <div className="p-12 text-center text-slate-400 font-bold">
-              Belum ada kegiatan ekstrakurikuler.
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {ekskulList.map((e) => {
-                const pesertaCount = e._count?.nilaiEkskul ?? 0;
-                const jadwalStr = `${e.hari || "-"}${e.jam ? ` (${e.jam})` : ""}`;
-
-                return (
-                  <div
-                    key={e.id}
-                    className="border border-slate-100 hover:border-slate-200 rounded-2xl p-4 transition bg-white group hover:shadow-xs"
-                  >
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div className="flex items-start gap-3.5 min-w-0">
-                        <div className="w-10 h-10 rounded-xl bg-amber-100 text-amber-600 flex items-center justify-center shrink-0">
-                          <i className="fa-solid fa-medal text-lg" />
-                        </div>
-                        <div className="min-w-0 space-y-0.5">
-                          <div className="flex items-center gap-2">
-                            <span className="font-black text-slate-800 text-sm">{e.nama}</span>
-                            <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">
-                              {e.kategori || "Umum"}
-                            </span>
-                            {!e.isAktif && (
-                              <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-slate-100 text-slate-500 uppercase">
-                                Nonaktif
-                              </span>
-                            )}
-                          </div>
-                          <div className="text-[11px] font-bold text-slate-400 flex flex-wrap items-center gap-1.5">
-                            <span>Pembina: <strong className="text-slate-600">{e.pembina || "-"}</strong></span>
-                            <span>•</span>
-                            <span className="text-sky-700 font-bold">{pesertaCount} peserta</span>
-                            {e.kuota ? <span>/ {e.kuota} kuota</span> : null}
-                            <span>•</span>
-                            <span>Jadwal: {jadwalStr}</span>
-                            {e.lokasi ? <span>• Lokasi: {e.lokasi}</span> : null}
-                          </div>
-                          {e.deskripsi && (
-                            <p className="text-[11px] font-medium text-slate-500 mt-1 italic">
-                              {e.deskripsi}
-                            </p>
-                          )}
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-2 shrink-0">
-                        <Link
-                          href={`/admin/master/ekskul?tab=peserta&ekskulId=${e.id}`}
-                          className="text-sky-700 bg-sky-50 hover:bg-sky-100 px-3 py-1.5 rounded-lg text-xs font-black transition"
-                        >
-                          Kelola
-                        </Link>
-                        <form action={hapusEkskul}>
-                          <input type="hidden" name="id" value={e.id} />
-                          <button
-                            type="submit"
-                            title="Hapus Kegiatan"
-                            className="text-rose-500 bg-rose-50 hover:bg-rose-100 p-2 rounded-lg transition cursor-pointer"
-                          >
-                            <i className="fa-solid fa-trash text-xs" />
-                          </button>
-                        </form>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
+          <EkskulMasterClient
+            initialEkskulList={ekskulList.map((e) => ({
+              id: e.id,
+              nama: e.nama,
+              kategori: e.kategori,
+              deskripsi: e.deskripsi,
+              pembina: e.pembina,
+              hari: e.hari,
+              jam: e.jam,
+              kuota: e.kuota,
+              lokasi: e.lokasi,
+              isAktif: e.isAktif,
+              pesertaCount: e._count?.nilaiEkskul ?? 0,
+            }))}
+            taNama={taNama}
+          />
         </div>
       )}
 
