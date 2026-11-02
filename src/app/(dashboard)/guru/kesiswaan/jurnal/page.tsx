@@ -94,12 +94,14 @@ export default async function GuruJurnalPage(props: {
     : allSiswa;
 
   const DIMENSI_LIST = [
-    "Beriman & Bertakwa",
-    "Berkebinekaan Global",
-    "Gotong Royong",
-    "Mandiri",
-    "Bernalar Kritis",
-    "Kreatif",
+    "Keimanan dan Ketakwaan terhadap Tuhan YME",
+    "Kewargaan",
+    "Penalaran Kritis",
+    "Kreativitas",
+    "Kolaborasi",
+    "Kemandirian",
+    "Kesehatan",
+    "Komunikasi",
   ];
 
   return (
@@ -214,7 +216,7 @@ export default async function GuruJurnalPage(props: {
 
               <div>
                 <label className="text-xs font-extrabold text-slate-500 mb-1 block">
-                  Dimensi Profil Pancasila
+                  Dimensi Profil Lulusan
                 </label>
                 <select
                   name="dimensiProfil"

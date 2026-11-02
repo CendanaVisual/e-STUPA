@@ -150,7 +150,8 @@ export async function tambahJurnal(formData: FormData): Promise<void> {
   const siswaId = formData.get("siswaId") as string;
   const rombelId = (formData.get("rombelId") as string) || null;
   const mapel = (formData.get("mapel") as string)?.trim() || null;
-  const dimensiProfil = (formData.get("dimensiProfil") as string) || "Mandiri";
+  const dimensiProfil =
+    (formData.get("dimensiProfil") as string) || "Keimanan dan Ketakwaan terhadap Tuhan YME";
   const catatan = (formData.get("catatan") as string)?.trim();
   const butirSikap = (formData.get("butirSikap") as string) || "Positif";
   const tindakLanjut = (formData.get("tindakLanjut") as string)?.trim() || null;

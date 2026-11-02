@@ -623,7 +623,7 @@ model JurnalPerkembangan {
   siswa         Siswa    @relation(fields: [siswaId], references: [id], onDelete: Cascade)
   tanggal       DateTime @db.Date
   mapel         String?
-  dimensiProfil String   // Beriman & Bertakwa, Berkebinekaan Global, Gotong Royong, Mandiri, Bernalar Kritis, Kreatif
+  dimensiProfil String   // Dimensi Profil Lulusan (Keimanan, Kewargaan, Penalaran Kritis, Kreativitas, Kolaborasi, Kemandirian, Kesehatan, Komunikasi)
   catatan       String
   butirSikap    String?  // Positif / Perlu Pembinaan
   tindakLanjut  String?
