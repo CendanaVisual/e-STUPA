@@ -253,6 +253,15 @@ model Siswa {
   status          StatusSiswa   @default(AKTIF)
   isAktif         Boolean       @default(true)
 
+  // Bidang tambahan profil murid (EduGuru)
+  anakKe          String?
+  tahunMasuk      String?
+  pekerjaanAyah   String?
+  pekerjaanIbu    String?
+  kjp             Boolean       @default(false)
+  pip             Boolean       @default(false)
+  bantuanLain     String?
+
   anggotaRombel AnggotaRombel[]
   nilai         Nilai[]
   nilaiRapor    NilaiRapor[]

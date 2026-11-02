@@ -40,7 +40,7 @@ const NAV: NavItem[] = [
   },
   {
     href: "/admin/master/siswa",
-    label: "Data Siswa",
+    label: "Data Murid",
     icon: "fa-solid fa-user-graduate",
     category: "Data Master Sekolah",
   },
