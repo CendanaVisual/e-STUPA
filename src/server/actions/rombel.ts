@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
 import { requireRole } from "@/lib/auth/session";
 import { getSemesterAktif } from "@/lib/services/semester";
+import { syncGuruKelasRombel } from "./pembelajaran";
 
 export type ActionResponse = {
   success: boolean;
@@ -108,7 +109,7 @@ export async function createRombel(input: RombelInput): Promise<ActionResponse> 
       }
     }
 
-    await db.rombel.create({
+    const newRombel = await db.rombel.create({
       data: {
         semesterId: semester.id,
         nama,
@@ -118,6 +119,18 @@ export async function createRombel(input: RombelInput): Promise<ActionResponse> 
       },
     });
 
+    // Otomatis sinkronisasi mata pelajaran jika wali kelas adalah Guru Kelas
+    if (waliKelasId) {
+      const wali = await db.gtk.findUnique({ where: { id: waliKelasId } });
+      const isGuruKelas =
+        wali?.jenisPtk?.toLowerCase().trim() === "guru kelas" ||
+        wali?.jenisPtk?.toLowerCase().includes("guru kelas");
+      if (isGuruKelas) {
+        await syncGuruKelasRombel(newRombel.id, waliKelasId, semester.id);
+      }
+    }
+
+    revalidatePath("/admin/pembelajaran");
     revalidatePath("/admin/master/rombel");
     revalidatePath("/admin/master/siswa");
     revalidatePath("/admin");
@@ -212,6 +225,18 @@ export async function updateRombel(input: RombelInput): Promise<ActionResponse> 
       },
     });
 
+    // Otomatis sinkronisasi mata pelajaran jika wali kelas adalah Guru Kelas
+    if (waliKelasId) {
+      const wali = await db.gtk.findUnique({ where: { id: waliKelasId } });
+      const isGuruKelas =
+        wali?.jenisPtk?.toLowerCase().trim() === "guru kelas" ||
+        wali?.jenisPtk?.toLowerCase().includes("guru kelas");
+      if (isGuruKelas) {
+        await syncGuruKelasRombel(current.id, waliKelasId, current.semesterId);
+      }
+    }
+
+    revalidatePath("/admin/pembelajaran");
     revalidatePath("/admin/master/rombel");
     revalidatePath("/admin/master/siswa");
     revalidatePath("/admin");

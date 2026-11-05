@@ -255,7 +255,7 @@ async function main() {
     { kode: "BIND", nama: "Bahasa Indonesia", urutan: 3 },
     { kode: "MTK", nama: "Matematika", urutan: 4 },
     { kode: "IPAS", nama: "Ilmu Pengetahuan Alam dan Sosial (IPAS)", urutan: 5 },
-    { kode: "SB", nama: "Seni Budaya", urutan: 6 },
+    { kode: "SB", nama: "Seni dan Budaya", urutan: 6 },
     { kode: "PJOK", nama: "Pendidikan Jasmani, Olahraga, dan Kesehatan", urutan: 7 },
     { kode: "BING", nama: "Bahasa Inggris", urutan: 8 },
     { kode: "MULOK", nama: "Muatan Lokal (Bahasa Bali)", urutan: 9 },

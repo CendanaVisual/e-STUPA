@@ -6,6 +6,7 @@ import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
 import { requireRole } from "@/lib/auth/session";
 import { getSemesterAktif } from "@/lib/services/semester";
+import { syncGuruKelasRombel } from "./pembelajaran";
 
 export type ActionResponse = {
   success: boolean;
@@ -124,6 +125,14 @@ export async function createGtk(input: GtkInput): Promise<ActionResponse> {
         where: { id: input.waliKelasRombelId },
         data: { waliKelasId: newGtk.id },
       });
+
+      // Otomatis sinkronkan penugasan mapel jika jenis PTK adalah Guru Kelas
+      const isGuruKelas =
+        newGtk.jenisPtk?.toLowerCase().trim() === "guru kelas" ||
+        newGtk.jenisPtk?.toLowerCase().includes("guru kelas");
+      if (isGuruKelas) {
+        await syncGuruKelasRombel(input.waliKelasRombelId, newGtk.id, semesterAktif.id);
+      }
     }
 
     // Tambah penugasan mapel jika ada
@@ -272,6 +281,14 @@ export async function updateGtk(input: GtkInput): Promise<ActionResponse> {
           where: { id: input.waliKelasRombelId },
           data: { waliKelasId: input.id },
         });
+
+        // Otomatis sinkronkan penugasan mapel jika jenis PTK adalah Guru Kelas
+        const isGuruKelas =
+          input.jenisPtk?.toLowerCase().trim() === "guru kelas" ||
+          input.jenisPtk?.toLowerCase().includes("guru kelas");
+        if (isGuruKelas) {
+          await syncGuruKelasRombel(input.waliKelasRombelId, input.id, semesterAktif.id);
+        }
       }
     }
 
