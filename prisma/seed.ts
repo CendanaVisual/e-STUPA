@@ -4,7 +4,7 @@ import bcrypt from "bcryptjs";
 const db = new PrismaClient();
 
 async function main() {
-  console.log("🚀 Memulai seeding data STUPA & EduGuru...");
+  console.log("🚀 Memulai seeding master data e-STUPA...");
 
   // Pastikan constraint users_guru_gtk_chk dicabut agar akun guru fleksibel
   try {
@@ -110,361 +110,95 @@ async function main() {
   });
   console.log(`✅ Superadmin: ${superadminUsername}`);
 
-  // 4. DATA GTK & AKUN GURU
-  const gtks = [
-    {
-      nik: "5171010101850001",
-      nuptk: "198501012010011001",
-      nip: "198501012010011001",
-      nama: "Budi Santoso, S.Pd.",
-      jenisKelamin: "L" as const,
-      jenisPtk: "Guru Kelas",
-      username: "budi",
-    },
-    {
-      nik: "5171011503890002",
-      nuptk: "198903152012032002",
-      nip: "198903152012032002",
-      nama: "Siti Aminah, S.Pd.",
-      jenisKelamin: "P" as const,
-      jenisPtk: "Guru BK",
-      username: "siti",
-    },
-    {
-      nik: "5171012004920003",
-      nuptk: "199204202015022003",
-      nip: "199204202015022003",
-      nama: "Ni Wayan Dewi, S.Pd.",
-      jenisKelamin: "P" as const,
-      jenisPtk: "Guru Mapel",
-      username: "dewi",
-    },
-    {
-      nik: "5171011008940004",
-      nuptk: "199408102019011004",
-      nip: "199408102019011004",
-      nama: "I Kadek Yoga, S.Pd.",
-      jenisKelamin: "L" as const,
-      jenisPtk: "Guru Mapel",
-      username: "kadek",
-    },
-  ];
-
-  const gtkMap = new Map<string, string>();
-  for (const g of gtks) {
-    const gtkRecord = await db.gtk.upsert({
-      where: { nuptk: g.nuptk },
-      update: {
-        nama: g.nama,
-        nip: g.nip,
-        jenisKelamin: g.jenisKelamin,
-        jenisPtk: g.jenisPtk,
-        isAktif: true,
-      },
-      create: {
-        nik: g.nik,
-        nuptk: g.nuptk,
-        nip: g.nip,
-        nama: g.nama,
-        jenisKelamin: g.jenisKelamin,
-        jenisPtk: g.jenisPtk,
-        isAktif: true,
-      },
-    });
-    gtkMap.set(g.username, gtkRecord.id);
-
-    // Buat akun user guru
-    await db.user.upsert({
-      where: { username: g.username },
-      update: {
-        gtkId: gtkRecord.id,
-        role: "GURU",
-        isActive: true,
-      },
-      create: {
-        username: g.username,
-        passwordHash: await bcrypt.hash(`${g.username}123`, 12),
-        role: "GURU",
-        gtkId: gtkRecord.id,
-        isActive: true,
-      },
-    });
-  }
-  console.log(`✅ GTK & Akun Guru: ${gtks.length} personil`);
-
-  // 5. ROMBONGAN BELAJAR (ROMBEL)
-  const rombel5A = await db.rombel.upsert({
-    where: {
-      semesterId_nama: { semesterId: semGanjil.id, nama: "5A" },
-    },
-    update: {
-      tingkat: 5,
-      kurikulum: "Kurikulum Merdeka",
-      waliKelasId: gtkMap.get("budi") || null,
-    },
-    create: {
-      semesterId: semGanjil.id,
-      nama: "5A",
-      tingkat: 5,
-      kurikulum: "Kurikulum Merdeka",
-      waliKelasId: gtkMap.get("budi") || null,
-    },
-  });
-
-  await db.rombel.upsert({
-    where: {
-      semesterId_nama: { semesterId: semGanjil.id, nama: "5B" },
-    },
-    update: {
-      tingkat: 5,
-      kurikulum: "Kurikulum Merdeka",
-      waliKelasId: gtkMap.get("dewi") || null,
-    },
-    create: {
-      semesterId: semGanjil.id,
-      nama: "5B",
-      tingkat: 5,
-      kurikulum: "Kurikulum Merdeka",
-      waliKelasId: gtkMap.get("dewi") || null,
-    },
-  });
-
-  await db.rombel.upsert({
-    where: {
-      semesterId_nama: { semesterId: semGanjil.id, nama: "6A" },
-    },
-    update: {
-      tingkat: 6,
-      kurikulum: "Kurikulum Merdeka",
-      waliKelasId: gtkMap.get("kadek") || null,
-    },
-    create: {
-      semesterId: semGanjil.id,
-      nama: "6A",
-      tingkat: 6,
-      kurikulum: "Kurikulum Merdeka",
-      waliKelasId: gtkMap.get("kadek") || null,
-    },
-  });
-  console.log(`✅ Rombel: 5A, 5B, 6A`);
-
-  // 6. MATA PELAJARAN (MAPEL)
+  // 4. MATA PELAJARAN (MAPEL RESMI KURIKULUM MERDEKA)
   const mapels = [
-    { kode: "PAB", nama: "Pendidikan Agama dan Budi Pekerti", urutan: 1 },
-    { kode: "PP", nama: "Pendidikan Pancasila", urutan: 2 },
-    { kode: "BIND", nama: "Bahasa Indonesia", urutan: 3 },
-    { kode: "MTK", nama: "Matematika", urutan: 4 },
-    { kode: "IPAS", nama: "Ilmu Pengetahuan Alam dan Sosial (IPAS)", urutan: 5 },
-    { kode: "SB", nama: "Seni dan Budaya", urutan: 6 },
-    { kode: "PJOK", nama: "Pendidikan Jasmani, Olahraga, dan Kesehatan", urutan: 7 },
-    { kode: "BING", nama: "Bahasa Inggris", urutan: 8 },
-    { kode: "MULOK", nama: "Muatan Lokal (Bahasa Bali)", urutan: 9 },
+    { kode: "PAB", nama: "Pendidikan Agama dan Budi Pekerti", urutan: 1, kelompok: "Agama" },
+    { kode: "PAH", nama: "Pendidikan Agama Hindu dan Budi Pekerti", urutan: 1, kelompok: "Agama" },
+    { kode: "PAI", nama: "Pendidikan Agama Islam dan Budi Pekerti", urutan: 1, kelompok: "Agama" },
+    { kode: "PAK", nama: "Pendidikan Agama Kristen dan Budi Pekerti", urutan: 1, kelompok: "Agama" },
+    { kode: "PAKAT", nama: "Pendidikan Agama Katolik dan Budi Pekerti", urutan: 1, kelompok: "Agama" },
+    { kode: "PABUD", nama: "Pendidikan Agama Buddha dan Budi Pekerti", urutan: 1, kelompok: "Agama" },
+    { kode: "PP", nama: "Pendidikan Pancasila", urutan: 2, kelompok: "Umum" },
+    { kode: "BIND", nama: "Bahasa Indonesia", urutan: 3, kelompok: "Umum" },
+    { kode: "MTK", nama: "Matematika", urutan: 4, kelompok: "Umum" },
+    { kode: "IPAS", nama: "Ilmu Pengetahuan Alam dan Sosial (IPAS)", urutan: 5, kelompok: "Umum" },
+    { kode: "PJOK", nama: "Pendidikan Jasmani, Olahraga, dan Kesehatan", urutan: 6, kelompok: "Umum" },
+    { kode: "SB", nama: "Seni dan Budaya", urutan: 7, kelompok: "Umum" },
+    { kode: "BING", nama: "Bahasa Inggris", urutan: 8, kelompok: "Umum" },
+    { kode: "MULOK", nama: "Muatan Lokal (Bahasa Bali)", urutan: 9, kelompok: "Muatan Lokal" },
   ];
 
   for (const m of mapels) {
     await db.mapel.upsert({
       where: { kode: m.kode },
-      update: { nama: m.nama, urutan: m.urutan, isAktif: true },
-      create: { kode: m.kode, nama: m.nama, urutan: m.urutan, isAktif: true },
+      update: { nama: m.nama, urutan: m.urutan, kelompok: m.kelompok, isAktif: true },
+      create: { kode: m.kode, nama: m.nama, urutan: m.urutan, kelompok: m.kelompok, isAktif: true },
     });
   }
-  console.log(`✅ Mapel: ${mapels.length} mata pelajaran`);
+  console.log(`✅ Mapel: ${mapels.length} mata pelajaran resmi`);
 
-  // 7. SISWA & ANGGOTA ROMBEL
-  const students = [
+  // 5. MASTER EKSTRAKURIKULER
+  const masterEkskul = [
     {
-      nisn: "0012345671",
-      nis: "202501001",
-      nama: "Ahmad Firmansyah",
-      jk: "L" as const,
-      noAbsen: 1,
-      agama: "Islam",
-      tempatLahir: "Denpasar",
-      tanggalLahir: new Date("2015-05-12"),
-      alamat: "Jl. Pulau Moyo No. 45 Pedungan",
-      anakKe: "1",
-      tahunMasuk: "2021",
-      namaAyah: "Hendra Firmansyah",
-      pekerjaanAyah: "Wiraswasta",
-      namaIbu: "Siti Rahmawati",
-      pekerjaanIbu: "Ibu Rumah Tangga",
-      kjp: false,
-      pip: true,
-      bantuanLain: null,
+      nama: "Praja Muda Karana (Pramuka)",
+      kategori: "Kepanduan",
+      pembina: "Pembina Pramuka",
+      hari: "Jumat",
+      jam: "14:30 - 16:30",
     },
     {
-      nisn: "0012345672",
-      nis: "202501002",
-      nama: "Aisyah Nurhaliza",
-      jk: "P" as const,
-      noAbsen: 2,
-      agama: "Islam",
-      tempatLahir: "Denpasar",
-      tanggalLahir: new Date("2015-08-20"),
-      alamat: "Jl. Pulau Belitung No. 12 Pedungan",
-      anakKe: "2",
-      tahunMasuk: "2021",
-      namaAyah: "Muhammad Ridwan",
-      pekerjaanAyah: "PNS",
-      namaIbu: "Nurul Aini",
-      pekerjaanIbu: "Guru",
-      kjp: false,
-      pip: false,
-      bantuanLain: null,
+      nama: "Palang Merah Remaja (PMR)",
+      kategori: "Kemanusiaan / Kesehatan",
+      pembina: "Pembina PMR",
+      hari: "Sabtu",
+      jam: "08:00 - 10:00",
     },
     {
-      nisn: "0012345673",
-      nis: "202501003",
-      nama: "Christian Wibowo",
-      jk: "L" as const,
-      noAbsen: 3,
-      agama: "Kristen",
-      tempatLahir: "Surabaya",
-      tanggalLahir: new Date("2015-02-14"),
-      alamat: "Jl. Bypass Ngurah Rai No. 88",
-      anakKe: "1",
-      tahunMasuk: "2021",
-      namaAyah: "David Wibowo",
-      pekerjaanAyah: "Karyawan Swasta",
-      namaIbu: "Maria Kristina",
-      pekerjaanIbu: "Wiraswasta",
-      kjp: false,
-      pip: false,
-      bantuanLain: null,
+      nama: "Seni Tari Tradisional Bali",
+      kategori: "Kesenian",
+      pembina: "Pembina Seni Tari",
+      hari: "Kamis",
+      jam: "15:00 - 17:00",
     },
     {
-      nisn: "0012345674",
-      nis: "202501004",
-      nama: "Dewa Ayu Lestari",
-      jk: "P" as const,
-      noAbsen: 4,
-      agama: "Hindu",
-      tempatLahir: "Denpasar",
-      tanggalLahir: new Date("2015-11-05"),
-      alamat: "Jl. Pulau Rote No. 20 Pedungan",
-      anakKe: "2",
-      tahunMasuk: "2021",
-      namaAyah: "Dewa Gede Sukadana",
-      pekerjaanAyah: "Seniman Tari",
-      namaIbu: "Desak Made Yuliani",
-      pekerjaanIbu: "Pedagang",
-      kjp: true,
-      pip: false,
-      bantuanLain: null,
+      nama: "Futsal & Kebugaran Jasmani",
+      kategori: "Olahraga",
+      pembina: "Pembina Olahraga",
+      hari: "Rabu",
+      jam: "15:30 - 17:00",
     },
     {
-      nisn: "0012345675",
-      nis: "202501005",
-      nama: "I Kadek Artawan",
-      jk: "L" as const,
-      noAbsen: 5,
-      agama: "Hindu",
-      tempatLahir: "Gianyar",
-      tanggalLahir: new Date("2015-07-28"),
-      alamat: "Jl. Pulau Biak No. 15 Pedungan",
-      anakKe: "2",
-      tahunMasuk: "2021",
-      namaAyah: "I Wayan Suweta",
-      pekerjaanAyah: "Petani",
-      namaIbu: "Ni Made Asri",
-      pekerjaanIbu: "Pedagang",
-      kjp: false,
-      pip: true,
-      bantuanLain: null,
-    },
-    {
-      nisn: "0012345676",
-      nis: "202501006",
-      nama: "Ni Putu Ratna",
-      jk: "P" as const,
-      noAbsen: 6,
-      agama: "Hindu",
-      tempatLahir: "Denpasar",
-      tanggalLahir: new Date("2015-09-18"),
-      alamat: "Jl. Pulau Bungin No. 34 Pedungan",
-      anakKe: "1",
-      tahunMasuk: "2021",
-      namaAyah: "I Nyoman Sudarta",
-      pekerjaanAyah: "PNS",
-      namaIbu: "Ni Ketut Wardani",
-      pekerjaanIbu: "PNS",
-      kjp: false,
-      pip: false,
-      bantuanLain: null,
+      nama: "Robotik & Koding Dasar",
+      kategori: "Sains",
+      pembina: "Pembina Sains",
+      hari: "Selasa",
+      jam: "14:00 - 15:30",
     },
   ];
 
-  const studentMap = new Map<string, string>();
-  for (const s of students) {
-    const sRecord = await db.siswa.upsert({
-      where: { nisn: s.nisn },
+  for (const e of masterEkskul) {
+    await db.ekstrakurikuler.upsert({
+      where: { nama: e.nama },
       update: {
-        nis: s.nis,
-        nama: s.nama,
-        jenisKelamin: s.jk,
-        agama: s.agama,
-        tempatLahir: s.tempatLahir,
-        tanggalLahir: s.tanggalLahir,
-        alamat: s.alamat,
-        anakKe: s.anakKe,
-        tahunMasuk: s.tahunMasuk,
-        namaAyah: s.namaAyah,
-        pekerjaanAyah: s.pekerjaanAyah,
-        namaIbu: s.namaIbu,
-        pekerjaanIbu: s.pekerjaanIbu,
-        kjp: s.kjp,
-        pip: s.pip,
-        bantuanLain: s.bantuanLain,
-        status: "AKTIF",
+        kategori: e.kategori,
+        pembina: e.pembina,
+        hari: e.hari,
+        jam: e.jam,
         isAktif: true,
       },
       create: {
-        nisn: s.nisn,
-        nis: s.nis,
-        nama: s.nama,
-        jenisKelamin: s.jk,
-        agama: s.agama,
-        tempatLahir: s.tempatLahir,
-        tanggalLahir: s.tanggalLahir,
-        alamat: s.alamat,
-        anakKe: s.anakKe,
-        tahunMasuk: s.tahunMasuk,
-        namaAyah: s.namaAyah,
-        pekerjaanAyah: s.pekerjaanAyah,
-        namaIbu: s.namaIbu,
-        pekerjaanIbu: s.pekerjaanIbu,
-        kjp: s.kjp,
-        pip: s.pip,
-        bantuanLain: s.bantuanLain,
-        status: "AKTIF",
+        nama: e.nama,
+        kategori: e.kategori,
+        pembina: e.pembina,
+        hari: e.hari,
+        jam: e.jam,
         isAktif: true,
-      },
-    });
-    studentMap.set(s.nama, sRecord.id);
-
-    // Daftarkan ke Rombel 5A
-    await db.anggotaRombel.upsert({
-      where: {
-        semesterId_siswaId: {
-          semesterId: semGanjil.id,
-          siswaId: sRecord.id,
-        },
-      },
-      update: {
-        rombelId: rombel5A.id,
-        noAbsen: s.noAbsen,
-      },
-      create: {
-        semesterId: semGanjil.id,
-        rombelId: rombel5A.id,
-        siswaId: sRecord.id,
-        noAbsen: s.noAbsen,
       },
     });
   }
-  console.log(`✅ Siswa & Anggota Rombel: ${students.length} murid di kelas 5A`);
+  console.log(`✅ Master Ekstrakurikuler: ${masterEkskul.length} ekstrakurikuler aktif`);
 
-  // 8. KALENDER AKADEMIK (EDUGURU DEFAULT TEMPLATE)
+  // 6. AGENDA KALENDER PENDIDIKAN
   const kalenderList = [
     {
       judulKegiatan: "Masa Pengenalan Lingkungan Sekolah (MPLS)",
@@ -552,289 +286,35 @@ async function main() {
     },
   ];
 
-  // 8. KALENDER AKADEMIK (EDUGURU DEFAULT TEMPLATE)
   try {
-    // Bersihkan data kalender lama jika ada sebelum re-seed
-    await db.kalenderAkademik.deleteMany({
+    const existingKalender = await db.kalenderAkademik.count({
       where: { semesterId: semGanjil.id },
     });
-
-    for (const k of kalenderList) {
-      await db.kalenderAkademik.create({
-        data: {
-          semesterId: semGanjil.id,
-          judulKegiatan: k.judulKegiatan,
-          kategori: k.kategori,
-          tanggalMulai: k.tanggalMulai,
-          tanggalSelesai: k.tanggalSelesai,
-          keterangan: k.keterangan,
-        },
-      });
+    if (existingKalender === 0) {
+      for (const k of kalenderList) {
+        await db.kalenderAkademik.create({
+          data: {
+            semesterId: semGanjil.id,
+            judulKegiatan: k.judulKegiatan,
+            kategori: k.kategori,
+            tanggalMulai: k.tanggalMulai,
+            tanggalSelesai: k.tanggalSelesai,
+            keterangan: k.keterangan,
+          },
+        });
+      }
+      console.log(`✅ Kalender Pendidikan: ${kalenderList.length} agenda kegiatan berhasil dibuat`);
     }
-    console.log(`✅ Kalender Pendidikan: ${kalenderList.length} agenda kegiatan berhasil dibuat`);
   } catch (kErr) {
     console.warn("⚠️ Warning saat seeding Kalender Pendidikan (dilewati):", kErr);
   }
 
-  // 9. MASTER EKSTRAKURIKULER
-  const masterEkskul = [
-    {
-      nama: "Praja Muda Karana (Pramuka)",
-      kategori: "Kepanduan",
-      pembina: "Budi Santoso, S.Pd.",
-      hari: "Jumat",
-      jam: "14:30 - 16:30",
-    },
-    {
-      nama: "Palang Merah Remaja (PMR)",
-      kategori: "Kemanusiaan / Kesehatan",
-      pembina: "Siti Aminah, S.Pd.",
-      hari: "Sabtu",
-      jam: "08:00 - 10:00",
-    },
-    {
-      nama: "Seni Tari Tradisional Bali",
-      kategori: "Kesenian",
-      pembina: "Ni Wayan Dewi, S.Pd.",
-      hari: "Kamis",
-      jam: "15:00 - 17:00",
-    },
-    {
-      nama: "Futsal & Kebugaran Jasmani",
-      kategori: "Olahraga",
-      pembina: "I Kadek Yoga, S.Pd.",
-      hari: "Rabu",
-      jam: "15:30 - 17:00",
-    },
-    {
-      nama: "Robotik & Koding Dasar",
-      kategori: "Sains",
-      pembina: "Admin Pusat",
-      hari: "Selasa",
-      jam: "14:00 - 15:30",
-    },
-  ];
-
-  const ekskulMap = new Map<string, string>();
-  for (const e of masterEkskul) {
-    const eRecord = await db.ekstrakurikuler.upsert({
-      where: { nama: e.nama },
-      update: {
-        kategori: e.kategori,
-        pembina: e.pembina,
-        hari: e.hari,
-        jam: e.jam,
-        isAktif: true,
-      },
-      create: {
-        nama: e.nama,
-        kategori: e.kategori,
-        pembina: e.pembina,
-        hari: e.hari,
-        jam: e.jam,
-        isAktif: true,
-      },
-    });
-    ekskulMap.set(e.nama, eRecord.id);
-  }
-  console.log(`✅ Master Ekstrakurikuler: ${masterEkskul.length} ekskul aktif`);
-
-  // 10. PRESTASI MURID
-  const ahmadId = studentMap.get("Ahmad Firmansyah");
-  const dewaAyuId = studentMap.get("Dewa Ayu Lestari");
-  const kadekArtawanId = studentMap.get("I Kadek Artawan");
-
-  if (ahmadId && dewaAyuId && kadekArtawanId) {
-    await db.prestasiSiswa.deleteMany({
-      where: { semesterId: semGanjil.id },
-    });
-
-    const prestasiList = [
-      {
-        siswaId: ahmadId,
-        namaPrestasi: "Olimpiade Sains Nasional (OSN) Matematika SD",
-        kategori: "Akademik",
-        tingkat: "Kabupaten/Kota",
-        peringkat: "Juara 1",
-        penyelenggara: "Balai Pengembangan Talenta Indonesia (BPTI)",
-        tanggal: new Date("2026-08-20"),
-        keterangan: "Meraih medali emas seleksi kota Denpasar dan melaju ke tingkat provinsi.",
-      },
-      {
-        siswaId: dewaAyuId,
-        namaPrestasi: "Festival & Lomba Seni Siswa Nasional (FLS2N) Tari",
-        kategori: "Non-Akademik",
-        tingkat: "Provinsi",
-        peringkat: "Juara 2",
-        penyelenggara: "Dinas Pendidikan Pemuda & Olahraga Provinsi Bali",
-        tanggal: new Date("2026-09-12"),
-        keterangan: "Penyaji tari tradisi terbaik mewakili kontingen Kota Denpasar.",
-      },
-      {
-        siswaId: kadekArtawanId,
-        namaPrestasi: "Olimpiade Olahraga Siswa Nasional (O2SN) Lari Cepat",
-        kategori: "Non-Akademik",
-        tingkat: "Kecamatan",
-        peringkat: "Juara 1",
-        penyelenggara: "KKG PJOK Kecamatan Denpasar Selatan",
-        tanggal: new Date("2026-09-28"),
-        keterangan: "Juara 1 lari sprint 60 meter putra.",
-      },
-    ];
-
-    for (const p of prestasiList) {
-      await db.prestasiSiswa.create({
-        data: {
-          semesterId: semGanjil.id,
-          siswaId: p.siswaId,
-          namaPrestasi: p.namaPrestasi,
-          kategori: p.kategori,
-          tingkat: p.tingkat,
-          peringkat: p.peringkat,
-          penyelenggara: p.penyelenggara,
-          tanggal: p.tanggal,
-          keterangan: p.keterangan,
-        },
-      });
-    }
-    console.log(`✅ Data Prestasi Murid: ${prestasiList.length} prestasi berhasil dicatat`);
-  }
-
-  // 11. BIMBINGAN & KONSELING (BK)
-  const christianId = studentMap.get("Christian Wibowo");
-  const guruBkId = gtkMap.get("siti");
-
-  if (christianId && ahmadId) {
-    await db.bimbinganKonseling.deleteMany({
-      where: { semesterId: semGanjil.id },
-    });
-
-    const bkList = [
-      {
-        siswaId: christianId,
-        tanggal: new Date("2026-08-15"),
-        kategori: "Belajar",
-        permasalahan: "Siswa sering melamun saat pembelajaran Matematika dan tugas formatif sering terlambat dikumpulkan.",
-        tindakLanjut: "Konseling individu, bimbingan remedial bertahap, dan koordinasi berkala dengan orang tua murid.",
-        status: "Dalam Penanganan",
-        guruBkId: guruBkId || null,
-      },
-      {
-        siswaId: ahmadId,
-        tanggal: new Date("2026-09-05"),
-        kategori: "Perilaku",
-        permasalahan: "Perselisihan kecil saat bermain bola di lapangan saat jam istirahat sekolah.",
-        tindakLanjut: "Mediasi antar-murid, penanaman nilai Profil Pelajar Pancasila (Gotong Royong & Saling Menghargai), kasus dinyatakan rukun kembali.",
-        status: "Selesai",
-        guruBkId: guruBkId || null,
-      },
-    ];
-
-    for (const b of bkList) {
-      await db.bimbinganKonseling.create({
-        data: {
-          semesterId: semGanjil.id,
-          siswaId: b.siswaId,
-          tanggal: b.tanggal,
-          kategori: b.kategori,
-          permasalahan: b.permasalahan,
-          tindakLanjut: b.tindakLanjut,
-          status: b.status,
-          guruBkId: b.guruBkId,
-        },
-      });
-    }
-    console.log(`✅ Bimbingan & Konseling: ${bkList.length} catatan bimbingan berhasil dicatat`);
-  }
-
-  // 12. NILAI EKSTRAKURIKULER (UNTUK E-RAPOR)
-  const pramukaId = ekskulMap.get("Praja Muda Karana (Pramuka)");
-  const tariId = ekskulMap.get("Seni Tari Tradisional Bali");
-  const pmrId = ekskulMap.get("Palang Merah Remaja (PMR)");
-  const aisyahId = studentMap.get("Aisyah Nurhaliza");
-
-  if (pramukaId && ahmadId) {
-    await db.nilaiEkskul.upsert({
-      where: {
-        semesterId_ekskulId_siswaId: {
-          semesterId: semGanjil.id,
-          ekskulId: pramukaId,
-          siswaId: ahmadId,
-        },
-      },
-      update: {
-        predikat: "Sangat Baik",
-        keterangan: "Sangat aktif dan disiplin dalam setiap latihan pramuka, cakap dalam semaphore, sandi kotak, dan pengamalan Dwisatya serta Dwidarma.",
-      },
-      create: {
-        semesterId: semGanjil.id,
-        ekskulId: pramukaId,
-        siswaId: ahmadId,
-        predikat: "Sangat Baik",
-        keterangan: "Sangat aktif dan disiplin dalam setiap latihan pramuka, cakap dalam semaphore, sandi kotak, dan pengamalan Dwisatya serta Dwidarma.",
-      },
-    });
-  }
-
-  if (tariId && dewaAyuId) {
-    await db.nilaiEkskul.upsert({
-      where: {
-        semesterId_ekskulId_siswaId: {
-          semesterId: semGanjil.id,
-          ekskulId: tariId,
-          siswaId: dewaAyuId,
-        },
-      },
-      update: {
-        predikat: "Sangat Baik",
-        keterangan: "Memiliki penguasaan gerak agem, tandang, dan tangkep yang sangat luwes serta ekspresif dalam membawakan tari tradisi Bali.",
-      },
-      create: {
-        semesterId: semGanjil.id,
-        ekskulId: tariId,
-        siswaId: dewaAyuId,
-        predikat: "Sangat Baik",
-        keterangan: "Memiliki penguasaan gerak agem, tandang, dan tangkep yang sangat luwes serta ekspresif dalam membawakan tari tradisi Bali.",
-      },
-    });
-  }
-
-  if (pmrId && aisyahId) {
-    await db.nilaiEkskul.upsert({
-      where: {
-        semesterId_ekskulId_siswaId: {
-          semesterId: semGanjil.id,
-          ekskulId: pmrId,
-          siswaId: aisyahId,
-        },
-      },
-      update: {
-        predikat: "Baik",
-        keterangan: "Mampu mempraktikkan dasar pertolongan pertama (P3K) dengan tenang dan memiliki rasa empati serta kepedulian sosial yang tinggi.",
-      },
-      create: {
-        semesterId: semGanjil.id,
-        ekskulId: pmrId,
-        siswaId: aisyahId,
-        predikat: "Baik",
-        keterangan: "Mampu mempraktikkan dasar pertolongan pertama (P3K) dengan tenang dan memiliki rasa empati serta kepedulian sosial yang tinggi.",
-      },
-    });
-  }
-  console.log(`✅ Nilai Ekstrakurikuler: 3 penilaian e-rapor berhasil disimpan`);
-
-  console.log("\n🎉 SEEDING SELESAI DENGAN SEMPURNA KE NEON POSTGRESQL!");
+  console.log("\n🎉 SEEDING MASTER DATA SELESAI (Bersih dari data dummy siswa, nilai, prestasi & BK)!");
 }
 
 main()
   .catch((e) => {
     console.error("⚠️ Catatan saat seeding:", e);
-    // Di Vercel atau deployment build, jangan gagalkan proses build
-    if (process.env.VERCEL || process.env.CI || process.env.NODE_ENV === "production") {
-      console.log("ℹ️ Deployment Vercel tetap dilanjutkan agar aplikasi online.");
-      process.exit(0);
-    } else {
-      process.exit(0);
-    }
+    process.exit(0);
   })
   .finally(() => db.$disconnect());

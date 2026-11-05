@@ -130,8 +130,8 @@ const NAV: NavItem[] = [
   },
   {
     href: "/admin/backup",
-    label: "Backup & Arsip Nilai",
-    icon: "fa-solid fa-box-archive",
+    label: "Backup & Restore",
+    icon: "fa-solid fa-database",
     category: "Penilaian & Rapor",
   },
 ];
