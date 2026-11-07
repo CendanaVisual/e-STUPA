@@ -3,7 +3,56 @@ import { Suspense } from "react";
 import { logout } from "@/server/actions/auth";
 import { CurrentUserName, RoleGate } from "@/components/auth/RoleGate";
 import { SidebarNav, type NavItem } from "./SidebarNav";
+import { getSemesterAktif } from "@/lib/services/semester";
 import type { Role } from "@/lib/auth/jwt";
+
+async function ActiveSemesterCardContent() {
+  const sem = await getSemesterAktif();
+  const taNama = sem?.tahunAjaran?.nama || "2026/2027";
+  const tipeLabel =
+    sem?.tipe === "GENAP"
+      ? "Semester Genap"
+      : sem?.tipe === "GANJIL"
+      ? "Semester Ganjil"
+      : "Belum Aktif";
+  const statusLabel = sem?.status === "DIKUNCI" ? "Dikunci" : "Aktif";
+
+  return (
+    <>
+      <div className="flex items-center justify-between text-[10px] text-blue-700 font-bold uppercase tracking-wider mb-1">
+        <span>
+          <i className="fa-solid fa-school mr-1" />
+          SATUAN PENDIDIKAN
+        </span>
+        <span className="font-mono text-teal-700">T.A. {taNama}</span>
+      </div>
+      <p className="text-xs font-extrabold text-slate-800 truncate">
+        Portal Penilaian Sekolah
+      </p>
+      <p className="text-[10px] text-slate-500 font-medium mt-0.5 flex items-center gap-1.5">
+        <span
+          className={`w-1.5 h-1.5 rounded-full ${
+            sem?.status === "DIKUNCI" ? "bg-amber-500" : "bg-emerald-500"
+          }`}
+        />
+        <span>
+          {tipeLabel} • {statusLabel}
+        </span>
+      </p>
+    </>
+  );
+}
+
+async function TopbarTahunAjaranLabel() {
+  const sem = await getSemesterAktif();
+  const taNama = sem?.tahunAjaran?.nama || "2026/2027";
+  const tipeLabel = sem?.tipe === "GENAP" ? "Genap" : "Ganjil";
+  return (
+    <span className="text-teal-600 font-medium">
+      Tahun Ajaran {taNama} ({tipeLabel})
+    </span>
+  );
+}
 
 export function DashboardShell({
   title,
@@ -59,20 +108,19 @@ export function DashboardShell({
           {/* School Identity Card */}
           <div className="px-4 pt-4">
             <div className="p-3.5 rounded-2xl bg-gradient-to-br from-blue-50/90 via-sky-50/60 to-teal-50/80 border border-blue-200/70 shadow-xs">
-              <div className="flex items-center justify-between text-[10px] text-blue-700 font-bold uppercase tracking-wider mb-1">
-                <span>
-                  <i className="fa-solid fa-school mr-1" />
-                  SATUAN PENDIDIKAN
-                </span>
-                <span className="font-mono text-teal-700">T.A. 2026/2027</span>
-              </div>
-              <p className="text-xs font-extrabold text-slate-800 truncate">
-                Portal Penilaian Sekolah
-              </p>
-              <p className="text-[10px] text-slate-500 font-medium mt-0.5 flex items-center gap-1.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                <span>Semester Ganjil • Aktif</span>
-              </p>
+              <Suspense
+                fallback={
+                  <div className="space-y-1.5">
+                    <div className="h-3 w-32 bg-blue-100/60 rounded animate-pulse" />
+                    <p className="text-xs font-extrabold text-slate-800 truncate">
+                      Portal Penilaian Sekolah
+                    </p>
+                    <div className="h-2.5 w-24 bg-emerald-100/60 rounded animate-pulse" />
+                  </div>
+                }
+              >
+                <ActiveSemesterCardContent />
+              </Suspense>
             </div>
           </div>
 
@@ -121,7 +169,9 @@ export function DashboardShell({
             <span>/</span>
             <span className="font-semibold text-slate-700">{title}</span>
             <span>/</span>
-            <span className="text-teal-600 font-medium">Tahun Ajaran 2026/2027</span>
+            <Suspense fallback={<span className="text-teal-600 font-medium">Memuat Semester...</span>}>
+              <TopbarTahunAjaranLabel />
+            </Suspense>
           </div>
 
           <div className="flex items-center gap-3">

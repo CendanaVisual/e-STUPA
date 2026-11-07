@@ -104,6 +104,12 @@ const NAV: NavItem[] = [
     category: "Penilaian & Rapor",
   },
   {
+    href: "/admin/tujuan-pembelajaran",
+    label: "Tujuan Pembelajaran",
+    icon: "fa-solid fa-bullseye",
+    category: "Penilaian & Rapor",
+  },
+  {
     href: "/admin/leger",
     label: "Leger Nilai Lengkap",
     icon: "fa-solid fa-list-check",
@@ -125,7 +131,6 @@ const NAV: NavItem[] = [
     href: "/admin/tahun-ajaran",
     label: "Tahun Ajaran & Semester",
     icon: "fa-solid fa-calendar-check",
-    badge: "2026/27",
     category: "Penilaian & Rapor",
   },
   {

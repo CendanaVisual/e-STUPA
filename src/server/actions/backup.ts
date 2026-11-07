@@ -38,6 +38,7 @@ export async function backupSemesterFull(targetSemesterId?: string): Promise<Act
     const [
       rombels,
       pembelajarans,
+      tujuanPembelajarans,
       presensis,
       jurnals,
       bks,
@@ -69,6 +70,7 @@ export async function backupSemesterFull(targetSemesterId?: string): Promise<Act
           nilaiRapor: true,
         },
       }),
+      db.tujuanPembelajaran.findMany({ where: { semesterId } }),
       db.presensi.findMany({ where: { semesterId } }),
       db.jurnalPerkembangan.findMany({ where: { semesterId } }),
       db.bimbinganKonseling.findMany({ where: { semesterId } }),
@@ -81,6 +83,7 @@ export async function backupSemesterFull(targetSemesterId?: string): Promise<Act
     const totalBaris =
       rombels.length +
       pembelajarans.length +
+      tujuanPembelajarans.length +
       presensis.length +
       jurnals.length +
       bks.length +
@@ -104,6 +107,7 @@ export async function backupSemesterFull(targetSemesterId?: string): Promise<Act
       counts: {
         rombel: rombels.length,
         pembelajaran: pembelajarans.length,
+        tujuanPembelajaran: tujuanPembelajarans.length,
         presensi: presensis.length,
         jurnal: jurnals.length,
         bk: bks.length,
@@ -115,6 +119,7 @@ export async function backupSemesterFull(targetSemesterId?: string): Promise<Act
       data: {
         rombels,
         pembelajarans,
+        tujuanPembelajarans,
         presensis,
         jurnals,
         bks,
@@ -356,6 +361,37 @@ export async function restoreSemesterFull(backupPayload: any): Promise<ActionRes
       }
     }
 
+    // 3b. Restore Tujuan Pembelajaran
+    if (Array.isArray(data.tujuanPembelajarans)) {
+      for (const tp of data.tujuanPembelajarans) {
+        await db.tujuanPembelajaran.upsert({
+          where: {
+            semesterId_tingkat_mapelId_kodeTp: {
+              semesterId: targetSemesterId,
+              tingkat: tp.tingkat,
+              mapelId: tp.mapelId,
+              kodeTp: tp.kodeTp,
+            },
+          },
+          update: {
+            tujuanPembelajaran: tp.tujuanPembelajaran,
+            ruangLingkupMateri: tp.ruangLingkupMateri,
+            urutan: tp.urutan ?? 1,
+          },
+          create: {
+            semesterId: targetSemesterId,
+            tingkat: tp.tingkat,
+            mapelId: tp.mapelId,
+            kodeTp: tp.kodeTp,
+            tujuanPembelajaran: tp.tujuanPembelajaran,
+            ruangLingkupMateri: tp.ruangLingkupMateri || "-",
+            urutan: tp.urutan ?? 1,
+          },
+        });
+        restoredCount++;
+      }
+    }
+
     // 4. Restore Presensi
     if (Array.isArray(data.presensis)) {
       for (const pr of data.presensis) {
@@ -554,7 +590,7 @@ export async function backupPerMenu(menuKey: string): Promise<ActionResponse> {
       }
 
       case "PEMBELAJARAN_NILAI": {
-        const [pembelajarans, mapels] = await Promise.all([
+        const [pembelajarans, mapels, tujuanPembelajarans] = await Promise.all([
           semesterId
             ? db.pembelajaran.findMany({
                 where: { semesterId },
@@ -564,9 +600,12 @@ export async function backupPerMenu(menuKey: string): Promise<ActionResponse> {
                 include: { nilaiRapor: true, penilaian: { include: { nilai: true } } },
               }),
           db.mapel.findMany(),
+          semesterId
+            ? db.tujuanPembelajaran.findMany({ where: { semesterId } })
+            : db.tujuanPembelajaran.findMany(),
         ]);
-        payload = { pembelajarans, mapels };
-        count = pembelajarans.length + mapels.length;
+        payload = { pembelajarans, mapels, tujuanPembelajarans };
+        count = pembelajarans.length + mapels.length + tujuanPembelajarans.length;
         break;
       }
 
@@ -955,6 +994,35 @@ export async function restorePerMenu(backupPayload: any): Promise<ActionResponse
                 count++;
               }
             }
+          }
+        }
+        if (Array.isArray(data.tujuanPembelajarans) && targetSemesterId) {
+          for (const tp of data.tujuanPembelajarans) {
+            await db.tujuanPembelajaran.upsert({
+              where: {
+                semesterId_tingkat_mapelId_kodeTp: {
+                  semesterId: targetSemesterId,
+                  tingkat: tp.tingkat,
+                  mapelId: tp.mapelId,
+                  kodeTp: tp.kodeTp,
+                },
+              },
+              update: {
+                tujuanPembelajaran: tp.tujuanPembelajaran,
+                ruangLingkupMateri: tp.ruangLingkupMateri,
+                urutan: tp.urutan ?? 1,
+              },
+              create: {
+                semesterId: targetSemesterId,
+                tingkat: tp.tingkat,
+                mapelId: tp.mapelId,
+                kodeTp: tp.kodeTp,
+                tujuanPembelajaran: tp.tujuanPembelajaran,
+                ruangLingkupMateri: tp.ruangLingkupMateri || "-",
+                urutan: tp.urutan ?? 1,
+              },
+            });
+            count++;
           }
         }
         break;

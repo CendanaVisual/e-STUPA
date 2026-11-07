@@ -18,6 +18,12 @@ const NAV: NavItem[] = [
 
   // Pembelajaran & Nilai
   {
+    href: "/guru/tujuan-pembelajaran",
+    label: "Tujuan Pembelajaran",
+    icon: "fa-solid fa-bullseye",
+    category: "Pembelajaran & Nilai",
+  },
+  {
     href: "/guru/kelas",
     label: "Kelas & Input Nilai",
     icon: "fa-solid fa-chalkboard-user",

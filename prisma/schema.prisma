@@ -164,8 +164,9 @@ model Semester {
   prestasiSiswa PrestasiSiswa[]
   bimbingan     BimbinganKonseling[]
   jurnal        JurnalPerkembangan[]
-  nilaiEkskul   NilaiEkskul[]
-  kalender      KalenderAkademik[]
+  nilaiEkskul        NilaiEkskul[]
+  kalender           KalenderAkademik[]
+  tujuanPembelajaran TujuanPembelajaran[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -291,7 +292,8 @@ model Mapel {
   urutan      Int     @default(0)
   isAktif     Boolean @default(true)
 
-  pembelajaran Pembelajaran[]
+  pembelajaran       Pembelajaran[]
+  tujuanPembelajaran TujuanPembelajaran[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -693,4 +695,26 @@ model KalenderAkademik {
   @@index([semesterId, tanggalMulai])
   @@map("kalender_akademik")
 }
+
+/// Pemetaan Tujuan Pembelajaran (TP) & Ruang Lingkup Materi per Tingkat Kelas (1–6) dan Mata Pelajaran
+model TujuanPembelajaran {
+  id                 String   @id @default(cuid())
+  semesterId         String
+  semester           Semester @relation(fields: [semesterId], references: [id], onDelete: Cascade)
+  tingkat            Int      // Tingkat Kelas 1 - 6
+  mapelId            String
+  mapel              Mapel    @relation(fields: [mapelId], references: [id], onDelete: Cascade)
+  kodeTp             String   // mis. "TP.1", "1.1", "TP-5.1"
+  tujuanPembelajaran String   // Deskripsi Tujuan Pembelajaran
+  ruangLingkupMateri String   // Ruang Lingkup Materi sesuai mapel
+  urutan             Int      @default(1)
+
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@unique([semesterId, tingkat, mapelId, kodeTp])
+  @@index([semesterId, tingkat, mapelId])
+  @@map("tujuan_pembelajaran")
+}
+
 

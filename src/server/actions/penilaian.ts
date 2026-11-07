@@ -154,14 +154,46 @@ export async function generateDefaultPenilaian(formData: FormData): Promise<void
 
   const count = await db.penilaian.count({ where: { pembelajaranId } });
   if (count === 0) {
-    await db.penilaian.createMany({
-      data: [
-        { pembelajaranId, kategori: "HARIAN", urutan: 1, nama: "TP 1", tujuanPembelajaran: "Formatif TP 1" },
-        { pembelajaranId, kategori: "HARIAN", urutan: 2, nama: "TP 2", tujuanPembelajaran: "Formatif TP 2" },
-        { pembelajaranId, kategori: "UTS", urutan: 1, nama: "STS" },
-        { pembelajaranId, kategori: "UAS", urutan: 1, nama: "SAS" },
-      ],
+    const p = await db.pembelajaran.findUnique({
+      where: { id: pembelajaranId },
+      include: { rombel: { select: { tingkat: true } } },
     });
+
+    const mappedTps = p
+      ? await db.tujuanPembelajaran.findMany({
+          where: {
+            semesterId: p.semesterId,
+            tingkat: p.rombel.tingkat,
+            mapelId: p.mapelId,
+          },
+          orderBy: [{ urutan: "asc" }, { kodeTp: "asc" }],
+        })
+      : [];
+
+    if (mappedTps.length > 0) {
+      await db.penilaian.createMany({
+        data: [
+          ...mappedTps.map((tp, idx) => ({
+            pembelajaranId,
+            kategori: "HARIAN" as const,
+            urutan: idx + 1,
+            nama: tp.kodeTp,
+            tujuanPembelajaran: `${tp.tujuanPembelajaran} (${tp.ruangLingkupMateri})`,
+          })),
+          { pembelajaranId, kategori: "UTS" as const, urutan: 1, nama: "STS" },
+          { pembelajaranId, kategori: "UAS" as const, urutan: 1, nama: "SAS" },
+        ],
+      });
+    } else {
+      await db.penilaian.createMany({
+        data: [
+          { pembelajaranId, kategori: "HARIAN", urutan: 1, nama: "TP 1", tujuanPembelajaran: "Formatif TP 1" },
+          { pembelajaranId, kategori: "HARIAN", urutan: 2, nama: "TP 2", tujuanPembelajaran: "Formatif TP 2" },
+          { pembelajaranId, kategori: "UTS", urutan: 1, nama: "STS" },
+          { pembelajaranId, kategori: "UAS", urutan: 1, nama: "SAS" },
+        ],
+      });
+    }
   }
   revalidatePath(`/guru/nilai/${pembelajaranId}`);
 }
