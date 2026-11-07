@@ -6,6 +6,7 @@ import {
   resolveTpDeskripsiText,
   type TpScoreEntry,
 } from "@/lib/grading/calc";
+import { renderSignatureCellHtml } from "@/lib/export/signature-helper";
 
 export async function GET(req: Request) {
   const session = await getSession();
@@ -221,14 +222,23 @@ export async function GET(req: Request) {
     <table class="sign-table">
       <tr>
         <td>
-          <p style="margin-bottom: 45px;">Mengetahui,<br>Kepala Sekolah</p>
-          <p style="font-weight: bold; text-decoration: underline; margin-bottom: 2px;">${sekolah?.namaKepsek || "-"}</p>
-          <p style="margin: 0;">NIP. ${sekolah?.nipKepsek || "-"}</p>
+          ${renderSignatureCellHtml({
+            topLinesHtml: "Mengetahui,<br>Kepala Sekolah",
+            signatureUrl: sekolah?.capTtdKepsekUrl,
+            signerName: sekolah?.namaKepsek || "-",
+            signerNip: sekolah?.nipKepsek,
+            isCapKepsek: true,
+            spaceHeightPx: 52,
+          })}
         </td>
         <td>
-          <p style="margin-bottom: 45px;">${sekolah?.desaKelurahan || "Denpasar"}, ${new Date().toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" })}<br>Guru Mata Pelajaran</p>
-          <p style="font-weight: bold; text-decoration: underline; margin-bottom: 2px;">${targetP.gtk?.nama || "Guru Mata Pelajaran"}</p>
-          <p style="margin: 0;">NIP. ${targetP.gtk?.nip || "-"}</p>
+          ${renderSignatureCellHtml({
+            topLinesHtml: `${sekolah?.desaKelurahan || "Denpasar"}, ${new Date().toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" })}<br>Guru Mata Pelajaran`,
+            signatureUrl: targetP.gtk?.ttdUrl,
+            signerName: targetP.gtk?.nama || "Guru Mata Pelajaran",
+            signerNip: targetP.gtk?.nip,
+            spaceHeightPx: 52,
+          })}
         </td>
       </tr>
     </table>
@@ -574,14 +584,23 @@ export async function GET(req: Request) {
     <table class="sign-table">
       <tr>
         <td>
-          <p style="margin-bottom: 45px;">Mengetahui,<br>Kepala Sekolah</p>
-          <p style="font-weight: bold; text-decoration: underline; margin-bottom: 2px;">${sekolah?.namaKepsek || "-"}</p>
-          <p style="margin: 0;">NIP. ${sekolah?.nipKepsek || "-"}</p>
+          ${renderSignatureCellHtml({
+            topLinesHtml: "Mengetahui,<br>Kepala Sekolah",
+            signatureUrl: sekolah?.capTtdKepsekUrl,
+            signerName: sekolah?.namaKepsek || "-",
+            signerNip: sekolah?.nipKepsek,
+            isCapKepsek: true,
+            spaceHeightPx: 52,
+          })}
         </td>
         <td>
-          <p style="margin-bottom: 45px;">${sekolah?.desaKelurahan || "Denpasar"}, ${new Date().toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" })}<br>Wali Kelas</p>
-          <p style="font-weight: bold; text-decoration: underline; margin-bottom: 2px;">${rombel.waliKelas?.nama || "Wali Kelas"}</p>
-          <p style="margin: 0;">NIP. ${rombel.waliKelas?.nip || "-"}</p>
+          ${renderSignatureCellHtml({
+            topLinesHtml: `${sekolah?.desaKelurahan || "Denpasar"}, ${new Date().toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" })}<br>Wali Kelas`,
+            signatureUrl: rombel.waliKelas?.ttdUrl,
+            signerName: rombel.waliKelas?.nama || "Wali Kelas",
+            signerNip: rombel.waliKelas?.nip,
+            spaceHeightPx: 52,
+          })}
         </td>
       </tr>
     </table>

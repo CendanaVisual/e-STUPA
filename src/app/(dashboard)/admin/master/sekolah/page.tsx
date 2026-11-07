@@ -29,6 +29,7 @@ export default async function ProfilSekolahPage() {
         website: rawSekolah.website,
         namaKepsek: rawSekolah.namaKepsek,
         nipKepsek: rawSekolah.nipKepsek,
+        capTtdKepsekUrl: rawSekolah.capTtdKepsekUrl ?? null,
       }
     : {
         npsn: "50103069",
@@ -45,6 +46,7 @@ export default async function ProfilSekolahPage() {
         website: "",
         namaKepsek: "Drs. I Made Sujana, M.Pd.",
         nipKepsek: "196805121992031008",
+        capTtdKepsekUrl: null,
       };
 
   return <SekolahClient initialData={sekolah} />;

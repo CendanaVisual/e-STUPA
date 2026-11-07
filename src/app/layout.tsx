@@ -15,6 +15,11 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "STUPA — Sistem Terpadu Untuk Penilaian Akademik",
   description: "Pengolahan daftar nilai sekolah & ekspor E-Rapor",
+  icons: {
+    icon: [{ url: "/favicon.ico", type: "image/x-icon" }],
+    shortcut: ["/favicon.ico"],
+    apple: ["/favicon.ico"],
+  },
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

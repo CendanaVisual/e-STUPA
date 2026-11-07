@@ -21,6 +21,8 @@ export type GtkRow = {
   statusKepegawaian: string | null;
   email: string | null;
   noHp: string | null;
+  fotoUrl?: string | null;
+  hasTtd?: boolean;
   isAktif: boolean;
   user: {
     id: string;
@@ -562,11 +564,29 @@ export function GtkClient({
                     </td>
                     <td className="py-3.5 px-4">
                       <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white font-extrabold text-xs flex items-center justify-center shrink-0 shadow-xs">
-                          {g.nama.charAt(0).toUpperCase()}
-                        </div>
+                        {g.fotoUrl ? (
+                          <img
+                            src={g.fotoUrl}
+                            alt={g.nama}
+                            className="w-8 h-8 rounded-xl object-cover border border-emerald-200 shrink-0 shadow-xs"
+                          />
+                        ) : (
+                          <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white font-extrabold text-xs flex items-center justify-center shrink-0 shadow-xs">
+                            {g.nama.charAt(0).toUpperCase()}
+                          </div>
+                        )}
                         <div className="min-w-0">
-                          <p className="font-bold text-slate-800 text-xs truncate">{g.nama}</p>
+                          <div className="flex items-center gap-1.5">
+                            <p className="font-bold text-slate-800 text-xs truncate">{g.nama}</p>
+                            {g.hasTtd && (
+                              <span
+                                title="TTD Pendidik Transparan sudah diunggah"
+                                className="px-1.5 py-0.2 rounded bg-teal-50 border border-teal-200 text-teal-700 text-[9px] font-extrabold shrink-0"
+                              >
+                                TTD ✓
+                              </span>
+                            )}
+                          </div>
                           <div className="flex items-center gap-2 text-[10px] text-slate-500 mt-0.5">
                             {g.jenisKelamin && (
                               <span

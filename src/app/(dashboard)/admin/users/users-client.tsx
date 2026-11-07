@@ -8,6 +8,7 @@ import {
   resetUserPassword,
   deleteUser,
   autoGenerateTeacherAccounts,
+  aksesCepatKeGuru,
 } from "@/server/actions/users";
 import { safeFormatDate } from "@/lib/date";
 
@@ -317,6 +318,19 @@ export function UsersClient({ initialUsers, allGtks, currentUserId }: UsersClien
     });
   };
 
+  // Akses Cepat ke Dashboard Guru tanpa password
+  const handleAksesCepat = (u: UserItem) => {
+    setFeedback(null);
+    startTransition(async () => {
+      const res = await aksesCepatKeGuru(u.id);
+      if (!res.success) {
+        setFeedback({ type: "error", message: res.message });
+      } else {
+        window.location.assign("/guru");
+      }
+    });
+  };
+
   return (
     <div className="space-y-6">
       {/* Banner Notifikasi Pesan */}
@@ -597,6 +611,20 @@ export function UsersClient({ initialUsers, allGtks, currentUserId }: UsersClien
 
                       <td className="py-3.5 px-4 text-right">
                         <div className="flex items-center justify-end gap-1.5">
+                          {/* Akses Cepat ke Dashboard Guru tanpa password */}
+                          {u.role === "GURU" && (
+                            <button
+                              type="button"
+                              onClick={() => handleAksesCepat(u)}
+                              disabled={isPending}
+                              title={`Akses Cepat langsung ke Dashboard Guru (${u.gtk?.nama || u.username}) tanpa password`}
+                              className="px-2.5 h-7 rounded-lg bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-700 hover:to-blue-700 text-white font-bold text-[10px] inline-flex items-center gap-1.5 transition cursor-pointer shadow-xs disabled:opacity-50 shrink-0"
+                            >
+                              <i className="fa-solid fa-bolt text-[10px]" />
+                              <span>Akses Cepat</span>
+                            </button>
+                          )}
+
                           {/* Toggle status */}
                           <button
                             onClick={() => handleToggleStatus(u)}

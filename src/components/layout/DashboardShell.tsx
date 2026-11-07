@@ -1,9 +1,11 @@
 import Link from "next/link";
 import { Suspense } from "react";
-import { logout } from "@/server/actions/auth";
+import { logout, kembaliKeSuperadmin } from "@/server/actions/auth";
 import { CurrentUserName, RoleGate } from "@/components/auth/RoleGate";
 import { SidebarNav, type NavItem } from "./SidebarNav";
 import { getSemesterAktif } from "@/lib/services/semester";
+import { getSession } from "@/lib/auth/session";
+import { db } from "@/lib/db";
 import type { Role } from "@/lib/auth/jwt";
 
 async function ActiveSemesterCardContent() {
@@ -51,6 +53,52 @@ async function TopbarTahunAjaranLabel() {
     <span className="text-teal-600 font-medium">
       Tahun Ajaran {taNama} ({tipeLabel})
     </span>
+  );
+}
+
+async function SidebarUserAvatar() {
+  const session = await getSession();
+  if (session?.gtkId) {
+    try {
+      const gtk = await db.gtk.findUnique({
+        where: { id: session.gtkId },
+        select: { fotoUrl: true, nama: true },
+      });
+      if (gtk?.fotoUrl) {
+        return (
+          <img
+            src={gtk.fotoUrl}
+            alt={gtk.nama}
+            className="w-9 h-9 rounded-xl object-cover border border-blue-200 shrink-0"
+          />
+        );
+      }
+    } catch {
+      // Fallback avatar default
+    }
+  }
+  return (
+    <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-600 to-teal-500 text-white font-extrabold text-xs flex items-center justify-center shrink-0">
+      <i className="fa-regular fa-user" />
+    </div>
+  );
+}
+
+async function ImpersonationReturnControl() {
+  const session = await getSession();
+  if (!session?.impersonatedByAdminId) return null;
+
+  return (
+    <form action={kembaliKeSuperadmin}>
+      <button
+        type="submit"
+        title="Kembali ke Dashboard Superadmin"
+        className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white text-[11px] font-bold transition inline-flex items-center gap-1.5 cursor-pointer shadow-sm"
+      >
+        <i className="fa-solid fa-shield-halved text-[10px]" />
+        <span>Kembali ke Superadmin</span>
+      </button>
+    </form>
   );
 }
 
@@ -135,9 +183,15 @@ export function DashboardShell({
         {/* Active User Profile & Logout at Bottom */}
         <div className="p-4 border-t border-slate-200/80 space-y-2.5 bg-slate-50/80">
           <div className="p-2.5 rounded-2xl bg-white border border-slate-200/90 flex items-center gap-3 shadow-xs">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-600 to-teal-500 text-white font-extrabold text-xs flex items-center justify-center shrink-0">
-              <i className="fa-regular fa-user" />
-            </div>
+            <Suspense
+              fallback={
+                <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-600 to-teal-500 text-white font-extrabold text-xs flex items-center justify-center shrink-0">
+                  <i className="fa-regular fa-user" />
+                </div>
+              }
+            >
+              <SidebarUserAvatar />
+            </Suspense>
             <div className="min-w-0 flex-1">
               <div className="text-xs font-extrabold text-slate-800 truncate">
                 <CurrentUserName />
@@ -175,6 +229,10 @@ export function DashboardShell({
           </div>
 
           <div className="flex items-center gap-3">
+            <Suspense fallback={null}>
+              <ImpersonationReturnControl />
+            </Suspense>
+
             <div className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-medium">
               <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
               <span>Server & Database Aktif</span>

@@ -87,6 +87,8 @@ export default async function DataGtkPage() {
     statusKepegawaian: g.statusKepegawaian,
     email: g.email,
     noHp: g.noHp,
+    fotoUrl: g.fotoUrl || null,
+    hasTtd: Boolean(g.ttdUrl),
     isAktif: g.isAktif,
     user: g.user
       ? {

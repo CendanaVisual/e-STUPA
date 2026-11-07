@@ -127,7 +127,22 @@ export default async function AdminDashboard() {
           <i className="fa-solid fa-bolt text-amber-500" />
           <span>Aksi Cepat Pengelolaan Sistem</span>
         </h3>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
+          <Link
+            href="/admin/tujuan-pembelajaran"
+            className="p-4 rounded-2xl bg-white border border-slate-200 hover:border-rose-300 hover:shadow-md transition-all group flex items-start gap-3.5"
+          >
+            <div className="w-10 h-10 rounded-xl bg-rose-50 border border-rose-200 text-rose-600 flex items-center justify-center shrink-0 group-hover:bg-rose-600 group-hover:text-white transition-colors">
+              <i className="fa-solid fa-bullseye text-base" />
+            </div>
+            <div>
+              <p className="text-xs font-bold text-slate-800 group-hover:text-rose-700 transition">
+                Tujuan Pembelajaran
+              </p>
+              <p className="text-[11px] text-slate-500 mt-0.5">Pemetaan TP & Lingkup Materi Kelas 1–6</p>
+            </div>
+          </Link>
+
           <Link
             href="/admin/impor"
             className="p-4 rounded-2xl bg-white border border-slate-200 hover:border-blue-300 hover:shadow-md transition-all group flex items-start gap-3.5"

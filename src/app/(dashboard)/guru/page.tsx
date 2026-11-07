@@ -22,18 +22,45 @@ export default async function GuruDashboard() {
   return (
     <div className="space-y-6">
       {/* HEADER BANNER */}
-      <div className="glass-light-panel rounded-3xl p-6 sm:p-8 flex flex-col md:flex-row md:items-center md:justify-between gap-4 border border-blue-200/60 shadow-sm relative overflow-hidden bg-gradient-to-r from-blue-50/70 via-white to-sky-50/60">
-        <div>
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-100/70 border border-blue-200 text-blue-800 text-xs font-bold mb-3">
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-            <span>Ruang Kerja Pendidik</span>
+      <div className="glass-light-panel rounded-3xl p-6 sm:p-8 flex flex-col md:flex-row md:items-center md:justify-between gap-5 border border-blue-200/60 shadow-sm relative overflow-hidden bg-gradient-to-r from-blue-50/70 via-white to-sky-50/60">
+        <div className="flex items-center gap-4 sm:gap-5">
+          {/* FOTO PROFIL PRESISI DI SEBELAH KIRI TEKS SELAMAT DATANG */}
+          <Link
+            href="/guru/profil"
+            title="Kelola Profil & Foto Pendidik"
+            className="relative group shrink-0"
+          >
+            {gtk?.fotoUrl ? (
+              <img
+                src={gtk.fotoUrl}
+                alt={gtk.nama}
+                className="w-20 h-20 sm:w-24 sm:h-24 rounded-2xl object-cover border-2 border-white ring-2 ring-blue-200/90 shadow-md group-hover:ring-blue-400 transition-all"
+              />
+            ) : (
+              <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-2xl bg-gradient-to-br from-blue-600 to-teal-500 text-white flex flex-col items-center justify-center border-2 border-white ring-2 ring-blue-200/90 shadow-md group-hover:scale-105 transition-transform">
+                <i className="fa-solid fa-user-tie text-2xl sm:text-3xl" />
+                <span className="text-[9px] font-bold uppercase tracking-wider mt-1 opacity-90">
+                  Foto Profil
+                </span>
+              </div>
+            )}
+            <span className="absolute -bottom-1.5 -right-1.5 w-7 h-7 rounded-xl bg-white border border-blue-200 text-blue-600 shadow-sm flex items-center justify-center text-[11px] group-hover:bg-blue-600 group-hover:text-white transition-colors">
+              <i className="fa-solid fa-camera" />
+            </span>
+          </Link>
+
+          <div className="min-w-0">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-100/70 border border-blue-200 text-blue-800 text-xs font-bold mb-2.5">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+              <span>Ruang Kerja Pendidik</span>
+            </div>
+            <h1 className="text-xl sm:text-3xl font-extrabold text-slate-800 tracking-tight">
+              Selamat Datang, <span className="text-blue-700">{gtk?.nama ?? session.nama}</span>
+            </h1>
+            <p className="text-xs sm:text-sm text-slate-600 mt-1 max-w-xl">
+              Akses cepat pengisian nilai formatif/sumatif, rekapitulasi kehadiran murid, pembinaan kesiswaan, dan ekspor format resmi E-Rapor.
+            </p>
           </div>
-          <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-800 tracking-tight">
-            Selamat Datang, <span className="text-blue-700">{gtk?.nama ?? session.nama}</span>
-          </h1>
-          <p className="text-sm text-slate-600 mt-1 max-w-xl">
-            Akses cepat pengisian nilai formatif/sumatif, rekapitulasi kehadiran murid, pembinaan kesiswaan, dan ekspor format resmi E-Rapor.
-          </p>
         </div>
 
         <div className="p-4 rounded-2xl bg-white/95 border border-slate-200 shadow-xs flex flex-col items-start gap-1 shrink-0">
@@ -54,7 +81,19 @@ export default async function GuruDashboard() {
         <h2 className="text-sm font-extrabold text-slate-800 uppercase tracking-wider mb-3">
           Aksi & Modul Terpadu
         </h2>
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
+          <Link
+            href="/guru/tujuan-pembelajaran"
+            className="p-4 rounded-2xl bg-white border border-slate-200 hover:border-rose-300 hover:shadow-md transition flex flex-col items-center text-center gap-2 group"
+          >
+            <div className="w-10 h-10 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center font-bold text-base group-hover:bg-rose-600 group-hover:text-white transition-colors">
+              <i className="fa-solid fa-bullseye" />
+            </div>
+            <span className="text-xs font-bold text-slate-800 group-hover:text-rose-700 transition">
+              Tujuan Pembelajaran
+            </span>
+          </Link>
+
           <Link
             href="/guru/kelas"
             className="p-4 rounded-2xl bg-white border border-slate-200 hover:border-blue-300 hover:shadow-md transition flex flex-col items-center text-center gap-2 group"

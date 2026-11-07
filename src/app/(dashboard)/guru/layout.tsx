@@ -10,9 +10,9 @@ const NAV: NavItem[] = [
     category: "Utama",
   },
   {
-    href: "/guru/kalender",
-    label: "Kalender Akademik",
-    icon: "fa-solid fa-calendar-days",
+    href: "/guru/profil",
+    label: "Profil Pendidik",
+    icon: "fa-solid fa-id-card-clip",
     category: "Utama",
   },
 

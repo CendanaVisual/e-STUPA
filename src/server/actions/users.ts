@@ -3,7 +3,7 @@
 import bcrypt from "bcryptjs";
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
-import { requireRole } from "@/lib/auth/session";
+import { createSession, requireRole } from "@/lib/auth/session";
 
 export type ActionResponse = {
   success: boolean;
@@ -419,6 +419,51 @@ export async function autoGenerateTeacherAccounts(defaultPassword = "guru123456"
     return {
       success: false,
       message: err instanceof Error ? err.message : "Gagal membuat akun guru otomatis.",
+    };
+  }
+}
+
+/**
+ * Akses Cepat Superadmin -> beralih langsung ke Dashboard Guru tanpa password
+ */
+export async function aksesCepatKeGuru(targetUserId: string): Promise<ActionResponse> {
+  try {
+    const adminSession = await requireRole("SUPERADMIN");
+    if (!targetUserId) {
+      return { success: false, message: "ID akun guru tidak valid." };
+    }
+
+    const targetUser = await db.user.findUnique({
+      where: { id: targetUserId },
+      include: { gtk: true },
+    });
+
+    if (!targetUser) {
+      return { success: false, message: "Akun pengguna tidak ditemukan." };
+    }
+
+    if (targetUser.role !== "GURU") {
+      return { success: false, message: "Fitur Akses Cepat hanya diperuntukkan bagi akun Guru." };
+    }
+
+    await createSession({
+      userId: targetUser.id,
+      username: targetUser.username,
+      role: "GURU",
+      gtkId: targetUser.gtkId,
+      nama: targetUser.gtk?.nama ?? targetUser.username,
+      impersonatedByAdminId: adminSession.userId,
+    });
+
+    return {
+      success: true,
+      message: `Berhasil masuk ke dashboard ${targetUser.gtk?.nama || targetUser.username}.`,
+    };
+  } catch (err: unknown) {
+    console.error("[aksesCepatKeGuru Error]:", err);
+    return {
+      success: false,
+      message: err instanceof Error ? err.message : "Gagal melakukan akses cepat ke dashboard guru.",
     };
   }
 }

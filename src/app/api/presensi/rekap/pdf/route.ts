@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth/session";
 import { db } from "@/lib/db";
+import { renderSignatureCellHtml } from "@/lib/export/signature-helper";
 
 export async function GET(req: Request) {
   const session = await getSession();
@@ -293,14 +294,23 @@ export async function GET(req: Request) {
   <table class="sign-table">
     <tr>
       <td>
-        <p style="margin-bottom: 60px;">Mengetahui,<br>Kepala Sekolah</p>
-        <p style="font-weight: bold; text-decoration: underline; margin-bottom: 2px;">${sekolah?.namaKepsek || "Drs. I Made Sujana, M.Pd."}</p>
-        <p style="margin: 0;">NIP. ${sekolah?.nipKepsek || "196805121992031008"}</p>
+        ${renderSignatureCellHtml({
+          topLinesHtml: "Mengetahui,<br>Kepala Sekolah",
+          signatureUrl: sekolah?.capTtdKepsekUrl,
+          signerName: sekolah?.namaKepsek || "Drs. I Made Sujana, M.Pd.",
+          signerNip: sekolah?.nipKepsek || "196805121992031008",
+          isCapKepsek: true,
+          spaceHeightPx: 58,
+        })}
       </td>
       <td>
-        <p style="margin-bottom: 60px;">${sekolah?.desaKelurahan || "Denpasar"}, ${new Date().toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" })}<br>Wali Kelas</p>
-        <p style="font-weight: bold; text-decoration: underline; margin-bottom: 2px;">${rombel.waliKelas?.nama || "Wali Kelas"}</p>
-        <p style="margin: 0;">NIP. ${rombel.waliKelas?.nip || "-"}</p>
+        ${renderSignatureCellHtml({
+          topLinesHtml: `${sekolah?.desaKelurahan || "Denpasar"}, ${new Date().toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" })}<br>Wali Kelas`,
+          signatureUrl: rombel.waliKelas?.ttdUrl,
+          signerName: rombel.waliKelas?.nama || "Wali Kelas",
+          signerNip: rombel.waliKelas?.nip,
+          spaceHeightPx: 58,
+        })}
       </td>
     </tr>
   </table>

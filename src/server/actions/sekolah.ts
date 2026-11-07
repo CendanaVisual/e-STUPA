@@ -27,6 +27,7 @@ export async function updateProfilSekolah(
         website?: string;
         namaKepsek?: string;
         nipKepsek?: string;
+        capTtdKepsekUrl?: string | null;
       }
 ): Promise<UpdateSekolahResponse> {
   try {
@@ -46,6 +47,7 @@ export async function updateProfilSekolah(
     let website = "";
     let namaKepsek = "";
     let nipKepsek = "";
+    let capTtdKepsekUrl: string | null | undefined = undefined;
 
     if (input instanceof FormData) {
       npsn = String(input.get("npsn") || "").trim();
@@ -62,6 +64,10 @@ export async function updateProfilSekolah(
       website = String(input.get("website") || "").trim();
       namaKepsek = String(input.get("namaKepsek") || "").trim();
       nipKepsek = String(input.get("nipKepsek") || "").trim();
+      if (input.has("capTtdKepsekUrl")) {
+        const rawCap = String(input.get("capTtdKepsekUrl") || "").trim();
+        capTtdKepsekUrl = rawCap || null;
+      }
     } else {
       npsn = String(input.npsn || "").trim();
       nama = String(input.nama || "").trim();
@@ -77,6 +83,7 @@ export async function updateProfilSekolah(
       website = String(input.website || "").trim();
       namaKepsek = String(input.namaKepsek || "").trim();
       nipKepsek = String(input.nipKepsek || "").trim();
+      capTtdKepsekUrl = input.capTtdKepsekUrl;
     }
 
     if (!npsn) {
@@ -101,6 +108,7 @@ export async function updateProfilSekolah(
       website: website || null,
       namaKepsek: namaKepsek || null,
       nipKepsek: nipKepsek || null,
+      ...(capTtdKepsekUrl !== undefined ? { capTtdKepsekUrl } : {}),
     };
 
     // Ambil data sekolah yang sudah ada
@@ -131,12 +139,62 @@ export async function updateProfilSekolah(
 
     revalidatePath("/admin/master/sekolah");
     revalidatePath("/admin");
+    revalidatePath("/admin/leger");
+    revalidatePath("/guru/leger");
+    revalidatePath("/guru/ekspor");
     return { success: true, message: "Profil sekolah berhasil disimpan ke database!" };
   } catch (err: unknown) {
     console.error("[updateProfilSekolah Error]:", err);
     return {
       success: false,
       message: err instanceof Error ? err.message : "Gagal menyimpan data profil sekolah.",
+    };
+  }
+}
+
+/**
+ * Simpan cepat berkas CAP Sekolah & TTD Kepala Sekolah (PNG Transparan)
+ */
+export async function updateCapTtdKepsekAction(
+  capTtdKepsekUrl: string | null
+): Promise<UpdateSekolahResponse> {
+  try {
+    await requireRole("SUPERADMIN");
+
+    const existing = await db.sekolah.findFirst();
+    if (existing) {
+      await db.sekolah.update({
+        where: { id: existing.id },
+        data: { capTtdKepsekUrl },
+      });
+    } else {
+      await db.sekolah.create({
+        data: {
+          npsn: "50103069",
+          nama: "SD Negeri 7 Pedungan",
+          bentukPendidikan: "SD",
+          capTtdKepsekUrl,
+        },
+      });
+    }
+
+    revalidatePath("/admin/master/sekolah");
+    revalidatePath("/admin");
+    revalidatePath("/admin/leger");
+    revalidatePath("/guru/leger");
+    revalidatePath("/guru/ekspor");
+
+    return {
+      success: true,
+      message: capTtdKepsekUrl
+        ? "Berkas CAP Sekolah & TTD KEPSEK berhasil dikonversi ke latar transparan dan disimpan!"
+        : "Berkas CAP Sekolah & TTD KEPSEK berhasil dihapus.",
+    };
+  } catch (err: unknown) {
+    console.error("[updateCapTtdKepsekAction Error]:", err);
+    return {
+      success: false,
+      message: err instanceof Error ? err.message : "Gagal menyimpan CAP Sekolah & TTD KEPSEK.",
     };
   }
 }

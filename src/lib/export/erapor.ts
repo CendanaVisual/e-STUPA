@@ -8,6 +8,7 @@ import {
   getFaseByTingkat,
   type TpScoreEntry,
 } from "@/lib/grading/calc";
+import { addSignatureToWorksheet } from "./signature-helper";
 
 /**
  * Generator File Ekspor Nilai E-Rapor Kurikulum Merdeka (100% Data Realtime)
@@ -41,6 +42,115 @@ const THIN_BORDER: Partial<ExcelJS.Borders> = {
   bottom: { style: "thin", color: { argb: "FFCBD5E1" } },
   right: { style: "thin", color: { argb: "FFCBD5E1" } },
 };
+
+function appendEraporSignatureBlock(
+  wb: ExcelJS.Workbook,
+  ws: ExcelJS.Worksheet,
+  opts: {
+    leftStartCol: number; // 1-based
+    leftEndCol: number; // 1-based
+    rightStartCol: number; // 1-based
+    rightEndCol: number; // 1-based
+    desaKelurahan: string;
+    namaKepsek: string;
+    nipKepsek: string;
+    capTtdKepsekUrl?: string | null;
+    guruNama: string;
+    guruNip: string;
+    guruTtdUrl?: string | null;
+  }
+) {
+  ws.addRow([]);
+  ws.addRow([]);
+  const topRow = ws.addRow([]);
+  const rTop = topRow.number;
+  const titleRow = ws.addRow([]);
+  const rTitle = titleRow.number;
+
+  // 3 baris ruang tanda tangan & stempel
+  ws.addRow([]).height = 18;
+  ws.addRow([]).height = 18;
+  ws.addRow([]).height = 18;
+
+  const nameRow = ws.addRow([]);
+  const rName = nameRow.number;
+  const nipRow = ws.addRow([]);
+  const rNip = nipRow.number;
+
+  const tglCetak = new Date().toLocaleDateString("id-ID", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+
+  if (opts.leftEndCol > opts.leftStartCol) {
+    ws.mergeCells(rTop, opts.leftStartCol, rTop, opts.leftEndCol);
+    ws.mergeCells(rTitle, opts.leftStartCol, rTitle, opts.leftEndCol);
+    ws.mergeCells(rName, opts.leftStartCol, rName, opts.leftEndCol);
+    ws.mergeCells(rNip, opts.leftStartCol, rNip, opts.leftEndCol);
+  }
+
+  if (opts.rightEndCol > opts.rightStartCol) {
+    ws.mergeCells(rTop, opts.rightStartCol, rTop, opts.rightEndCol);
+    ws.mergeCells(rTitle, opts.rightStartCol, rTitle, opts.rightEndCol);
+    ws.mergeCells(rName, opts.rightStartCol, rName, opts.rightEndCol);
+    ws.mergeCells(rNip, opts.rightStartCol, rNip, opts.rightEndCol);
+  }
+
+  const cLeftTop = ws.getRow(rTop).getCell(opts.leftStartCol);
+  cLeftTop.value = "Mengetahui,";
+  cLeftTop.font = { size: 10 };
+  cLeftTop.alignment = { horizontal: "center" };
+
+  const cLeftTitle = ws.getRow(rTitle).getCell(opts.leftStartCol);
+  cLeftTitle.value = "Kepala Sekolah";
+  cLeftTitle.font = { size: 10, bold: true };
+  cLeftTitle.alignment = { horizontal: "center" };
+
+  const cLeftName = ws.getRow(rName).getCell(opts.leftStartCol);
+  cLeftName.value = opts.namaKepsek || "-";
+  cLeftName.font = { size: 10, bold: true, underline: true };
+  cLeftName.alignment = { horizontal: "center" };
+
+  const cLeftNip = ws.getRow(rNip).getCell(opts.leftStartCol);
+  cLeftNip.value = `NIP. ${opts.nipKepsek || "-"}`;
+  cLeftNip.font = { size: 9 };
+  cLeftNip.alignment = { horizontal: "center" };
+
+  const cRightTop = ws.getRow(rTop).getCell(opts.rightStartCol);
+  cRightTop.value = `${opts.desaKelurahan}, ${tglCetak}`;
+  cRightTop.font = { size: 10 };
+  cRightTop.alignment = { horizontal: "center" };
+
+  const cRightTitle = ws.getRow(rTitle).getCell(opts.rightStartCol);
+  cRightTitle.value = "Guru Pengampu";
+  cRightTitle.font = { size: 10, bold: true };
+  cRightTitle.alignment = { horizontal: "center" };
+
+  const cRightName = ws.getRow(rName).getCell(opts.rightStartCol);
+  cRightName.value = opts.guruNama || "Guru Pengampu";
+  cRightName.font = { size: 10, bold: true, underline: true };
+  cRightName.alignment = { horizontal: "center" };
+
+  const cRightNip = ws.getRow(rNip).getCell(opts.rightStartCol);
+  cRightNip.value = `NIP. ${opts.guruNip || "-"}`;
+  cRightNip.font = { size: 9 };
+  cRightNip.alignment = { horizontal: "center" };
+
+  // Sematkan CAP Sekolah & TTD Kepsek serta TTD Guru Pengampu transparan
+  addSignatureToWorksheet(wb, ws, opts.capTtdKepsekUrl, {
+    col: Math.max(0, opts.leftStartCol - 1 + 0.25),
+    row: rTitle - 0.1,
+    width: 155,
+    height: 64,
+  });
+  addSignatureToWorksheet(wb, ws, opts.guruTtdUrl, {
+    col: Math.max(0, opts.rightStartCol - 1 + 0.25),
+    row: rTitle - 0.1,
+    width: 135,
+    height: 58,
+  });
+}
 
 export async function buildEraporWorkbook(pembelajaranId: string) {
   const [p, sekolah] = await Promise.all([
@@ -412,6 +522,20 @@ export async function buildEraporWorkbook(pembelajaranId: string) {
   ws1ColWidths.push({ width: 14 });
   ws1.columns = ws1ColWidths;
 
+  appendEraporSignatureBlock(wb, ws1, {
+    leftStartCol: 2,
+    leftEndCol: 4,
+    rightStartCol: Math.max(5, validColWs1 - 1),
+    rightEndCol: validColWs1,
+    desaKelurahan: sekolah?.desaKelurahan || "Denpasar",
+    namaKepsek: sekolah?.namaKepsek || "-",
+    nipKepsek: sekolah?.nipKepsek || "-",
+    capTtdKepsekUrl: sekolah?.capTtdKepsekUrl,
+    guruNama,
+    guruNip,
+    guruTtdUrl: p.gtk?.ttdUrl,
+  });
+
   // ===========================================================================
   // TAB 2: Olah_Nilai_Rinci (Keseluruhan Pengelolaan Nilai Realtime)
   // ===========================================================================
@@ -665,6 +789,20 @@ export async function buildEraporWorkbook(pembelajaranId: string) {
   );
   ws2.columns = ws2Widths;
 
+  appendEraporSignatureBlock(wb, ws2, {
+    leftStartCol: 2,
+    leftEndCol: 5,
+    rightStartCol: Math.max(6, totalWs2Cols - 2),
+    rightEndCol: totalWs2Cols,
+    desaKelurahan: sekolah?.desaKelurahan || "Denpasar",
+    namaKepsek: sekolah?.namaKepsek || "-",
+    nipKepsek: sekolah?.nipKepsek || "-",
+    capTtdKepsekUrl: sekolah?.capTtdKepsekUrl,
+    guruNama,
+    guruNip,
+    guruTtdUrl: p.gtk?.ttdUrl,
+  });
+
   // ===========================================================================
   // TAB 3: Pengaturan_TP_Bobot (Kolom D otomatis dari menu Tujuan Pembelajaran)
   // ===========================================================================
@@ -819,6 +957,20 @@ export async function buildEraporWorkbook(pembelajaranId: string) {
     { width: 28 },
   ];
 
+  appendEraporSignatureBlock(wb, ws3, {
+    leftStartCol: 1,
+    leftEndCol: 2,
+    rightStartCol: 6,
+    rightEndCol: 8,
+    desaKelurahan: sekolah?.desaKelurahan || "Denpasar",
+    namaKepsek: sekolah?.namaKepsek || "-",
+    nipKepsek: sekolah?.nipKepsek || "-",
+    capTtdKepsekUrl: sekolah?.capTtdKepsekUrl,
+    guruNama,
+    guruNip,
+    guruTtdUrl: p.gtk?.ttdUrl,
+  });
+
   // ===========================================================================
   // TAB 4: Statistik_Analisis (100% Data Aktual)
   // ===========================================================================
@@ -918,6 +1070,20 @@ export async function buildEraporWorkbook(pembelajaranId: string) {
     { width: 16 },
     { width: 16 },
   ];
+
+  appendEraporSignatureBlock(wb, ws4, {
+    leftStartCol: 1,
+    leftEndCol: 2,
+    rightStartCol: 4,
+    rightEndCol: 6,
+    desaKelurahan: sekolah?.desaKelurahan || "Denpasar",
+    namaKepsek: sekolah?.namaKepsek || "-",
+    nipKepsek: sekolah?.nipKepsek || "-",
+    capTtdKepsekUrl: sekolah?.capTtdKepsekUrl,
+    guruNama,
+    guruNip,
+    guruTtdUrl: p.gtk?.ttdUrl,
+  });
 
   const safeMapel = p.mapel.nama.replace(/[^a-zA-Z0-9_-]/g, "_");
   const safeRombel = p.rombel.nama.replace(/[^a-zA-Z0-9_-]/g, "_");

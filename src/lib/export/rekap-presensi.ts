@@ -1,6 +1,7 @@
 import "server-only";
 import ExcelJS from "exceljs";
 import { db } from "@/lib/db";
+import { addSignatureToWorksheet } from "./signature-helper";
 
 export async function buildRekapPresensiWorkbook(rombelId: string) {
   const [rombel, sekolah, activeSemester] = await Promise.all([
@@ -282,6 +283,8 @@ export async function buildRekapPresensiWorkbook(rombelId: string) {
   ];
   ws.mergeCells(`B${signRowNum}:D${signRowNum}`);
   ws.mergeCells(`H${signRowNum}:J${signRowNum}`);
+  ws.getCell(`B${signRowNum}`).alignment = { horizontal: "center" };
+  ws.getCell(`H${signRowNum}`).alignment = { horizontal: "center" };
 
   const signTitleRow = signRowNum + 1;
   ws.getRow(signTitleRow).values = [
@@ -296,6 +299,8 @@ export async function buildRekapPresensiWorkbook(rombelId: string) {
   ];
   ws.mergeCells(`B${signTitleRow}:D${signTitleRow}`);
   ws.mergeCells(`H${signTitleRow}:J${signTitleRow}`);
+  ws.getCell(`B${signTitleRow}`).alignment = { horizontal: "center" };
+  ws.getCell(`H${signTitleRow}`).alignment = { horizontal: "center" };
 
   const nameRow = signRowNum + 4;
   ws.getRow(nameRow).values = [
@@ -312,6 +317,8 @@ export async function buildRekapPresensiWorkbook(rombelId: string) {
   ws.mergeCells(`H${nameRow}:J${nameRow}`);
   ws.getCell(`B${nameRow}`).font = { name: "Arial", size: 9, bold: true, underline: true };
   ws.getCell(`H${nameRow}`).font = { name: "Arial", size: 9, bold: true, underline: true };
+  ws.getCell(`B${nameRow}`).alignment = { horizontal: "center" };
+  ws.getCell(`H${nameRow}`).alignment = { horizontal: "center" };
 
   const nipRow = nameRow + 1;
   ws.getRow(nipRow).values = [
@@ -328,6 +335,22 @@ export async function buildRekapPresensiWorkbook(rombelId: string) {
   ws.mergeCells(`H${nipRow}:J${nipRow}`);
   ws.getCell(`B${nipRow}`).font = { name: "Arial", size: 8 };
   ws.getCell(`H${nipRow}`).font = { name: "Arial", size: 8 };
+  ws.getCell(`B${nipRow}`).alignment = { horizontal: "center" };
+  ws.getCell(`H${nipRow}`).alignment = { horizontal: "center" };
+
+  // Sematkan CAP Sekolah & TTD Kepsek serta TTD Wali Kelas (transparan)
+  addSignatureToWorksheet(wb, ws, sekolah?.capTtdKepsekUrl, {
+    col: 1.4,
+    row: signTitleRow - 0.1,
+    width: 155,
+    height: 64,
+  });
+  addSignatureToWorksheet(wb, ws, rombel.waliKelas?.ttdUrl, {
+    col: 7.4,
+    row: signTitleRow - 0.1,
+    width: 135,
+    height: 58,
+  });
 
   const buffer = await wb.xlsx.writeBuffer();
   const safeName = rombel.nama.replace(/[^a-zA-Z0-9_-]/g, "_");

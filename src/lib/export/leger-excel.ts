@@ -6,6 +6,7 @@ import {
   resolveTpDeskripsiText,
   type TpScoreEntry,
 } from "@/lib/grading/calc";
+import { addSignatureToWorksheet } from "./signature-helper";
 
 export async function buildLegerWorkbook(
   rombelId: string,
@@ -278,6 +279,20 @@ export async function buildLegerWorkbook(
     ws.getCell(`F${nipRow}`).value = `NIP. ${targetP.gtk?.nip || "-"}`;
     ws.getCell(`F${nipRow}`).font = { name: "Arial", size: 8 };
     ws.getCell(`F${nipRow}`).alignment = { horizontal: "center" };
+
+    // Sematkan CAP Sekolah & TTD Kepsek serta TTD Guru Mapel (transparan)
+    addSignatureToWorksheet(wb, ws, sekolah?.capTtdKepsekUrl, {
+      col: 1.2,
+      row: signRow,
+      width: 155,
+      height: 64,
+    });
+    addSignatureToWorksheet(wb, ws, targetP.gtk?.ttdUrl, {
+      col: 5.55,
+      row: signRow,
+      width: 135,
+      height: 58,
+    });
 
     const buffer = await wb.xlsx.writeBuffer();
     const safeRombelNama = rombel.nama.replace(/[^a-zA-Z0-9_-]/g, "_");
@@ -650,6 +665,20 @@ export async function buildLegerWorkbook(
   ws.getCell(`${rightSignCol}${nipRow}`).value = `NIP. ${rombel.waliKelas?.nip || "-"}`;
   ws.getCell(`${rightSignCol}${nipRow}`).font = { name: "Arial", size: 8 };
   ws.getCell(`${rightSignCol}${nipRow}`).alignment = { horizontal: "center" };
+
+  // Sematkan CAP Sekolah & TTD Kepsek serta TTD Wali Kelas (transparan)
+  addSignatureToWorksheet(wb, ws, sekolah?.capTtdKepsekUrl, {
+    col: 1.35,
+    row: signTitleRow - 0.1,
+    width: 155,
+    height: 64,
+  });
+  addSignatureToWorksheet(wb, ws, rombel.waliKelas?.ttdUrl, {
+    col: Math.max(4, totalCols - 3.3),
+    row: signTitleRow - 0.1,
+    width: 135,
+    height: 58,
+  });
 
   const buffer = await wb.xlsx.writeBuffer();
   const safeRombelNama = rombel.nama.replace(/[^a-zA-Z0-9_-]/g, "_");

@@ -4,7 +4,7 @@ import bcrypt from "bcryptjs";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { db } from "@/lib/db";
-import { createSession, deleteSession } from "@/lib/auth/session";
+import { createSession, deleteSession, getSession } from "@/lib/auth/session";
 
 const LoginSchema = z.object({
   username: z.string().trim().min(1, "Username wajib diisi"),
@@ -127,4 +127,34 @@ export async function login(_prev: LoginState, formData: FormData): Promise<Logi
 export async function logout() {
   await deleteSession();
   redirect("/login");
+}
+
+/**
+ * Kembali ke sesi Superadmin setelah masuk ke Dashboard Guru melalui fitur Akses Cepat
+ */
+export async function kembaliKeSuperadmin() {
+  const session = await getSession();
+  if (!session?.impersonatedByAdminId) {
+    redirect("/guru");
+  }
+
+  const adminUser = await db.user.findUnique({
+    where: { id: session.impersonatedByAdminId },
+    include: { gtk: true },
+  });
+
+  if (!adminUser || adminUser.role !== "SUPERADMIN" || !adminUser.isActive) {
+    await deleteSession();
+    redirect("/login");
+  }
+
+  await createSession({
+    userId: adminUser.id,
+    username: adminUser.username,
+    role: "SUPERADMIN",
+    gtkId: adminUser.gtkId,
+    nama: adminUser.gtk?.nama ?? adminUser.username,
+  });
+
+  redirect("/admin/users");
 }

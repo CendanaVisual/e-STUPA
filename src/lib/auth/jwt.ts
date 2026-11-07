@@ -17,6 +17,7 @@ export interface SessionPayload {
   role: Role;
   gtkId: string | null;
   nama: string;
+  impersonatedByAdminId?: string;
 }
 
 function getKey() {

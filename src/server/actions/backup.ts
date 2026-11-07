@@ -889,27 +889,35 @@ export async function restorePerMenu(backupPayload: any): Promise<ActionResponse
       case "GTK_USER": {
         if (Array.isArray(data.gtks)) {
           for (const g of data.gtks) {
-            await db.gtk.upsert({
-              where: { nuptk: g.nuptk },
-              update: {
-                nip: g.nip,
-                nama: g.nama,
-                jenisKelamin: g.jenisKelamin,
-                jenisPtk: g.jenisPtk,
-                statusKepegawaian: g.statusKepegawaian,
-                isAktif: g.isAktif !== undefined ? g.isAktif : true,
-              },
-              create: {
-                id: g.id,
-                nuptk: g.nuptk,
-                nip: g.nip,
-                nama: g.nama,
-                jenisKelamin: g.jenisKelamin,
-                jenisPtk: g.jenisPtk,
-                statusKepegawaian: g.statusKepegawaian,
-                isAktif: g.isAktif !== undefined ? g.isAktif : true,
-              },
-            });
+            const gtkPayload = {
+              nip: g.nip ?? null,
+              nuptk: g.nuptk ?? null,
+              nik: g.nik ?? null,
+              nama: g.nama,
+              jenisKelamin: g.jenisKelamin ?? null,
+              tempatLahir: g.tempatLahir ?? null,
+              tanggalLahir: g.tanggalLahir ? new Date(g.tanggalLahir) : null,
+              jenisPtk: g.jenisPtk ?? null,
+              statusKepegawaian: g.statusKepegawaian ?? null,
+              email: g.email ?? null,
+              noHp: g.noHp ?? null,
+              fotoUrl: g.fotoUrl ?? null,
+              ttdUrl: g.ttdUrl ?? null,
+              isAktif: g.isAktif !== undefined ? g.isAktif : true,
+            };
+            if (g.nuptk) {
+              await db.gtk.upsert({
+                where: { nuptk: g.nuptk },
+                update: gtkPayload,
+                create: { id: g.id, ...gtkPayload },
+              });
+            } else if (g.id) {
+              await db.gtk.upsert({
+                where: { id: g.id },
+                update: gtkPayload,
+                create: { id: g.id, ...gtkPayload },
+              });
+            }
             count++;
           }
         }

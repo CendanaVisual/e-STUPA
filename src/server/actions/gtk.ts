@@ -4,7 +4,7 @@ import bcrypt from "bcryptjs";
 import ExcelJS from "exceljs";
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
-import { requireRole } from "@/lib/auth/session";
+import { createSession, requireRole } from "@/lib/auth/session";
 import { getSemesterAktif } from "@/lib/services/semester";
 import { syncGuruKelasRombel } from "./pembelajaran";
 
@@ -294,6 +294,8 @@ export async function updateGtk(input: GtkInput): Promise<ActionResponse> {
 
     revalidatePath("/admin/master/gtk");
     revalidatePath("/admin/users");
+    revalidatePath("/guru");
+    revalidatePath("/guru/profil");
     return { success: true, message: `Data GTK "${nama}" berhasil diperbarui.` };
   } catch (err: unknown) {
     console.error("[updateGtk Error]:", err);
@@ -684,6 +686,316 @@ export async function importGtkFromFile(formData: FormData): Promise<{
       updated: 0,
       failed: 0,
       errors: [err instanceof Error ? err.message : "Terjadi kesalahan internal server."],
+    };
+  }
+}
+
+export type ProfilMandiriGuruInput = {
+  nama: string;
+  nip?: string | null;
+  nuptk?: string | null;
+  nik?: string | null;
+  jenisKelamin?: "L" | "P" | null;
+  tempatLahir?: string | null;
+  tanggalLahir?: string | null; // YYYY-MM-DD
+  jenisPtk?: string | null;
+  statusKepegawaian?: string | null;
+  email?: string | null;
+  noHp?: string | null;
+  fotoUrl?: string | null;
+  ttdUrl?: string | null;
+  username?: string | null;
+  newPassword?: string | null;
+};
+
+/**
+ * Edit Mandiri Profil Pendidik dari Dashboard Guru (Tersinkronisasi langsung ke Superadmin)
+ */
+export async function updateProfilMandiriGuru(
+  input: ProfilMandiriGuruInput
+): Promise<ActionResponse> {
+  try {
+    const session = await requireRole("GURU");
+
+    const nama = String(input.nama || "").trim();
+    if (!nama) {
+      return { success: false, message: "Nama lengkap pendidik wajib diisi." };
+    }
+
+    const nip = input.nip ? String(input.nip).trim() : null;
+    const nuptk = input.nuptk ? String(input.nuptk).trim() : null;
+    const nik = input.nik ? String(input.nik).trim() : null;
+    const tempatLahir = input.tempatLahir ? String(input.tempatLahir).trim() : null;
+    const tanggalLahir =
+      input.tanggalLahir && /^\d{4}-\d{2}-\d{2}$/.test(input.tanggalLahir.trim())
+        ? new Date(`${input.tanggalLahir.trim()}T00:00:00.000Z`)
+        : null;
+    const jenisPtk = input.jenisPtk ? String(input.jenisPtk).trim() : "Guru Mapel";
+    const statusKepegawaian = input.statusKepegawaian
+      ? String(input.statusKepegawaian).trim()
+      : "PNS / PPPK";
+    const email = input.email ? String(input.email).trim() : null;
+    const noHp = input.noHp ? String(input.noHp).trim() : null;
+
+    const currentUser = await db.user.findUnique({
+      where: { id: session.userId },
+      include: { gtk: true },
+    });
+
+    if (!currentUser) {
+      return { success: false, message: "Akun pengguna tidak ditemukan." };
+    }
+
+    let targetGtkId = currentUser.gtkId;
+
+    // Validasi duplikasi NUPTK / NIP / NIK terhadap GTK lain
+    if (nuptk) {
+      const conflict = await db.gtk.findFirst({
+        where: {
+          nuptk,
+          ...(targetGtkId ? { id: { not: targetGtkId } } : {}),
+        },
+        select: { id: true, nama: true },
+      });
+      if (conflict) {
+        return {
+          success: false,
+          message: `NUPTK ${nuptk} sudah terdaftar atas nama "${conflict.nama}".`,
+        };
+      }
+    }
+
+    if (nip) {
+      const conflict = await db.gtk.findFirst({
+        where: {
+          nip,
+          ...(targetGtkId ? { id: { not: targetGtkId } } : {}),
+        },
+        select: { id: true, nama: true },
+      });
+      if (conflict) {
+        return {
+          success: false,
+          message: `NIP ${nip} sudah terdaftar atas nama "${conflict.nama}".`,
+        };
+      }
+    }
+
+    if (nik) {
+      const conflict = await db.gtk.findFirst({
+        where: {
+          nik,
+          ...(targetGtkId ? { id: { not: targetGtkId } } : {}),
+        },
+        select: { id: true, nama: true },
+      });
+      if (conflict) {
+        return {
+          success: false,
+          message: `NIK ${nik} sudah terdaftar atas nama "${conflict.nama}".`,
+        };
+      }
+    }
+
+    // Validasi username jika diubah
+    let finalUsername = currentUser.username;
+    if (input.username && input.username.trim()) {
+      const cleanUname = input.username.trim().toLowerCase();
+      if (cleanUname.length < 3) {
+        return { success: false, message: "Username minimal 3 karakter." };
+      }
+      if (!/^[a-z0-9._-]+$/.test(cleanUname)) {
+        return {
+          success: false,
+          message: "Username hanya boleh berisi huruf kecil, angka, titik, strip (-), atau garis bawah (_).",
+        };
+      }
+      if (cleanUname !== currentUser.username.toLowerCase()) {
+        const dupUser = await db.user.findFirst({
+          where: {
+            username: { equals: cleanUname, mode: "insensitive" },
+            id: { not: currentUser.id },
+          },
+        });
+        if (dupUser) {
+          return { success: false, message: `Username "${cleanUname}" sudah digunakan akun lain.` };
+        }
+        finalUsername = cleanUname;
+      }
+    }
+
+    if (input.newPassword && input.newPassword.trim().length > 0 && input.newPassword.trim().length < 6) {
+      return { success: false, message: "Kata sandi baru minimal 6 karakter." };
+    }
+
+    if (targetGtkId) {
+      await db.gtk.update({
+        where: { id: targetGtkId },
+        data: {
+          nama,
+          nip,
+          nuptk,
+          nik,
+          jenisKelamin: input.jenisKelamin || null,
+          tempatLahir,
+          tanggalLahir,
+          jenisPtk,
+          statusKepegawaian,
+          email,
+          noHp,
+          ...(input.fotoUrl !== undefined ? { fotoUrl: input.fotoUrl } : {}),
+          ...(input.ttdUrl !== undefined ? { ttdUrl: input.ttdUrl } : {}),
+        },
+      });
+    } else {
+      const createdGtk = await db.gtk.create({
+        data: {
+          nama,
+          nip,
+          nuptk,
+          nik,
+          jenisKelamin: input.jenisKelamin || null,
+          tempatLahir,
+          tanggalLahir,
+          jenisPtk,
+          statusKepegawaian,
+          email,
+          noHp,
+          fotoUrl: input.fotoUrl ?? null,
+          ttdUrl: input.ttdUrl ?? null,
+          isAktif: true,
+        },
+      });
+      targetGtkId = createdGtk.id;
+    }
+
+    // Update akun login User (username / password / gtkId)
+    const userUpdateData: { username: string; gtkId: string; passwordHash?: string } = {
+      username: finalUsername,
+      gtkId: targetGtkId,
+    };
+    if (input.newPassword && input.newPassword.trim().length >= 6) {
+      userUpdateData.passwordHash = await bcrypt.hash(input.newPassword.trim(), 12);
+    }
+    await db.user.update({
+      where: { id: currentUser.id },
+      data: userUpdateData,
+    });
+
+    // Sinkronkan penugasan mapel jika jenis PTK adalah Guru Kelas dan menjadi Wali Kelas di semester aktif
+    const semesterAktif = await getSemesterAktif();
+    const isGuruKelas =
+      jenisPtk.toLowerCase().trim() === "guru kelas" ||
+      jenisPtk.toLowerCase().includes("guru kelas");
+    if (semesterAktif && isGuruKelas && targetGtkId) {
+      const waliRombels = await db.rombel.findMany({
+        where: { semesterId: semesterAktif.id, waliKelasId: targetGtkId },
+        select: { id: true },
+      });
+      for (const r of waliRombels) {
+        await syncGuruKelasRombel(r.id, targetGtkId, semesterAktif.id);
+      }
+    }
+
+    // Perbarui cookie sesi agar nama/username/gtkId langsung mutakhir di seluruh halaman
+    await createSession({
+      userId: currentUser.id,
+      username: finalUsername,
+      role: currentUser.role,
+      gtkId: targetGtkId,
+      nama,
+      ...(session.impersonatedByAdminId
+        ? { impersonatedByAdminId: session.impersonatedByAdminId }
+        : {}),
+    });
+
+    revalidatePath("/guru");
+    revalidatePath("/guru/profil");
+    revalidatePath("/guru/leger");
+    revalidatePath("/guru/ekspor");
+    revalidatePath("/admin/master/gtk");
+    revalidatePath("/admin/users");
+    revalidatePath("/admin/pembelajaran");
+    revalidatePath("/admin/leger");
+
+    return {
+      success: true,
+      message: "Profil Pendidik berhasil disimpan dan tersinkronisasi otomatis ke database Superadmin.",
+    };
+  } catch (err: unknown) {
+    console.error("[updateProfilMandiriGuru Error]:", err);
+    return {
+      success: false,
+      message: err instanceof Error ? err.message : "Gagal memperbarui Profil Pendidik.",
+    };
+  }
+}
+
+/**
+ * Simpan cepat Foto Profil atau TTD Pendidik transparan saat berkas diunggah/dihapus
+ */
+export async function updateMediaProfilGuru(payload: {
+  fotoUrl?: string | null;
+  ttdUrl?: string | null;
+}): Promise<ActionResponse> {
+  try {
+    const session = await requireRole("GURU");
+    const currentUser = await db.user.findUnique({
+      where: { id: session.userId },
+      include: { gtk: true },
+    });
+
+    if (!currentUser) {
+      return { success: false, message: "Akun pengguna tidak ditemukan." };
+    }
+
+    let targetGtkId = currentUser.gtkId;
+    if (targetGtkId) {
+      await db.gtk.update({
+        where: { id: targetGtkId },
+        data: {
+          ...(payload.fotoUrl !== undefined ? { fotoUrl: payload.fotoUrl } : {}),
+          ...(payload.ttdUrl !== undefined ? { ttdUrl: payload.ttdUrl } : {}),
+        },
+      });
+    } else {
+      const createdGtk = await db.gtk.create({
+        data: {
+          nama: session.nama || currentUser.username,
+          jenisPtk: "Guru Mapel",
+          statusKepegawaian: "PNS / PPPK",
+          fotoUrl: payload.fotoUrl ?? null,
+          ttdUrl: payload.ttdUrl ?? null,
+          isAktif: true,
+        },
+      });
+      targetGtkId = createdGtk.id;
+      await db.user.update({
+        where: { id: currentUser.id },
+        data: { gtkId: targetGtkId },
+      });
+      await createSession({
+        ...session,
+        gtkId: targetGtkId,
+      });
+    }
+
+    revalidatePath("/guru");
+    revalidatePath("/guru/profil");
+    revalidatePath("/guru/leger");
+    revalidatePath("/guru/ekspor");
+    revalidatePath("/admin/master/gtk");
+    revalidatePath("/admin/leger");
+
+    return {
+      success: true,
+      message: "Berkas gambar berhasil diperbarui dan disinkronkan.",
+    };
+  } catch (err: unknown) {
+    console.error("[updateMediaProfilGuru Error]:", err);
+    return {
+      success: false,
+      message: err instanceof Error ? err.message : "Gagal menyimpan berkas gambar.",
     };
   }
 }

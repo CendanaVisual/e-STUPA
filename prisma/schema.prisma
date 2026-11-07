@@ -197,8 +197,10 @@ model Sekolah {
   telepon        String?
   email          String?
   website        String?
-  namaKepsek     String?
-  nipKepsek      String?
+  namaKepsek       String?
+  nipKepsek        String?
+  /// Stempel/CAP Sekolah & Tanda Tangan Kepala Sekolah (PNG transparan Data URL)
+  capTtdKepsekUrl  String? @db.Text
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -222,6 +224,10 @@ model Gtk {
   statusKepegawaian String? // PNS, PPPK, Honor, dsb.
   email             String?
   noHp              String?
+  /// Foto profil pendidik (Data URL)
+  fotoUrl           String?       @db.Text
+  /// Tanda tangan pendidik transparan (PNG Data URL) untuk berkas ekspor
+  ttdUrl            String?       @db.Text
   isAktif           Boolean       @default(true)
 
   user          User?

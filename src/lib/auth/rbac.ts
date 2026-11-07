@@ -14,11 +14,15 @@ export async function assertPembelajaranAccess(
 ) {
   const p = await db.pembelajaran.findUnique({
     where: { id: pembelajaranId },
-    include: { semester: true },
+    include: { semester: true, rombel: { select: { waliKelasId: true } } },
   });
   if (!p) throw new Error("Pembelajaran tidak ditemukan");
 
-  if (session.role === "GURU" && p.gtkId !== session.gtkId) {
+  if (
+    session.role === "GURU" &&
+    p.gtkId !== session.gtkId &&
+    (!session.gtkId || p.rombel.waliKelasId !== session.gtkId)
+  ) {
     throw new Error("Anda tidak mengampu pembelajaran ini");
   }
   if (opts.write && p.semester.status !== "AKTIF") {

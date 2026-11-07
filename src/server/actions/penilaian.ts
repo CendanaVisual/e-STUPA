@@ -400,3 +400,89 @@ export async function generateDefaultPenilaian(formData: FormData): Promise<void
   if (!pembelajaranId) return;
   await generateDefaultPenilaianAction(pembelajaranId);
 }
+
+/**
+ * Edit mandiri KKTP & Bobot Asesmen oleh Guru Pengampu (Wali Kelas maupun Guru Mapel).
+ * Tersinkronisasi langsung ke database & Dashboard Superadmin, serta menghitung ulang NilaiRapor.
+ */
+export async function updateKktpDanBobotAction(
+  pembelajaranId: string,
+  config: {
+    kktp: number;
+    bobotHarian: number;
+    bobotUts: number;
+    bobotUas: number;
+  }
+): Promise<PenilaianActionResult> {
+  try {
+    const session = await requireAuth();
+    if (!pembelajaranId) {
+      return { success: false, message: "ID pembelajaran tidak valid." };
+    }
+
+    await assertPembelajaranAccess(session, pembelajaranId, { write: true });
+
+    const kktp = Math.round(Number(config.kktp));
+    const bobotHarian = Math.round(Number(config.bobotHarian));
+    const bobotUts = Math.round(Number(config.bobotUts));
+    const bobotUas = Math.round(Number(config.bobotUas));
+
+    if (Number.isNaN(kktp) || kktp < 0 || kktp > 100) {
+      return { success: false, message: "Nilai KKTP harus berupa angka antara 0 sampai 100." };
+    }
+
+    if (
+      Number.isNaN(bobotHarian) ||
+      Number.isNaN(bobotUts) ||
+      Number.isNaN(bobotUas) ||
+      bobotHarian < 0 ||
+      bobotUts < 0 ||
+      bobotUas < 0 ||
+      bobotHarian > 100 ||
+      bobotUts > 100 ||
+      bobotUas > 100
+    ) {
+      return { success: false, message: "Setiap komponen bobot harus bernilai antara 0% sampai 100%." };
+    }
+
+    const totalBobot = bobotHarian + bobotUts + bobotUas;
+    if (totalBobot !== 100) {
+      return {
+        success: false,
+        message: `Total Bobot Asesmen wajib tepat 100% (saat ini ${totalBobot}%).`,
+      };
+    }
+
+    await db.pembelajaran.update({
+      where: { id: pembelajaranId },
+      data: {
+        kktp,
+        bobotHarian,
+        bobotUts,
+        bobotUas,
+      },
+    });
+
+    await recalculateNilaiRaporPembelajaran(pembelajaranId);
+
+    revalidatePath(`/guru/nilai/${pembelajaranId}`);
+    revalidatePath("/guru/kelas");
+    revalidatePath("/guru");
+    revalidatePath("/guru/leger");
+    revalidatePath("/guru/ekspor");
+    revalidatePath("/admin/pembelajaran");
+    revalidatePath("/admin/leger");
+    revalidatePath("/admin/statistik");
+
+    return {
+      success: true,
+      message: `KKTP (${kktp}) dan Bobot Asesmen (${bobotHarian}% / ${bobotUts}% / ${bobotUas}%) berhasil diperbarui & disinkronkan ke Superadmin.`,
+    };
+  } catch (err: unknown) {
+    console.error("[updateKktpDanBobotAction Error]:", err);
+    return {
+      success: false,
+      message: err instanceof Error ? err.message : "Gagal memperbarui KKTP & Bobot Asesmen.",
+    };
+  }
+}

@@ -1,7 +1,11 @@
 "use client";
 
-import { useState, useTransition } from "react";
-import { updateProfilSekolah } from "@/server/actions/sekolah";
+import { useState, useTransition, useRef } from "react";
+import {
+  updateProfilSekolah,
+  updateCapTtdKepsekAction,
+} from "@/server/actions/sekolah";
+import { processTransparentSignature } from "@/lib/image-transparent";
 
 export type SekolahData = {
   id?: string;
@@ -19,6 +23,7 @@ export type SekolahData = {
   website: string | null;
   namaKepsek: string | null;
   nipKepsek: string | null;
+  capTtdKepsekUrl?: string | null;
 };
 
 interface SekolahClientProps {
@@ -41,8 +46,11 @@ export function SekolahClient({ initialData }: SekolahClientProps) {
     website: initialData?.website || "",
     namaKepsek: initialData?.namaKepsek || "Drs. I Made Sujana, M.Pd.",
     nipKepsek: initialData?.nipKepsek || "196805121992031008",
+    capTtdKepsekUrl: initialData?.capTtdKepsekUrl ?? null,
   });
 
+  const capFileInputRef = useRef<HTMLInputElement | null>(null);
+  const [isProcessingCap, setIsProcessingCap] = useState(false);
   const [isPending, startTransition] = useTransition();
   const [feedback, setFeedback] = useState<{
     type: "success" | "error";
@@ -73,6 +81,7 @@ export function SekolahClient({ initialData }: SekolahClientProps) {
         website: formData.website || "",
         namaKepsek: formData.namaKepsek || "",
         nipKepsek: formData.nipKepsek || "",
+        capTtdKepsekUrl: formData.capTtdKepsekUrl ?? null,
       });
 
       if (!res.success) {
@@ -101,9 +110,52 @@ export function SekolahClient({ initialData }: SekolahClientProps) {
         website: initialData.website || "",
         namaKepsek: initialData.namaKepsek || "",
         nipKepsek: initialData.nipKepsek || "",
+        capTtdKepsekUrl: initialData.capTtdKepsekUrl ?? null,
       });
       setFeedback({ type: "success", message: "Formulir dikembalikan ke data tersimpan." });
     }
+  };
+
+  const handleUploadCapTtd = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setFeedback(null);
+    setIsProcessingCap(true);
+
+    try {
+      const transparentDataUrl = await processTransparentSignature(file, 650, 360);
+      setFormData((prev) => ({ ...prev, capTtdKepsekUrl: transparentDataUrl }));
+      const res = await updateCapTtdKepsekAction(transparentDataUrl);
+      if (res.success) {
+        setFeedback({ type: "success", message: res.message });
+      } else {
+        setFeedback({ type: "error", message: res.message });
+      }
+    } catch (err: unknown) {
+      setFeedback({
+        type: "error",
+        message:
+          err instanceof Error
+            ? err.message
+            : "Gagal memproses berkas CAP Sekolah & TTD KEPSEK.",
+      });
+    } finally {
+      setIsProcessingCap(false);
+      if (capFileInputRef.current) capFileInputRef.current.value = "";
+    }
+  };
+
+  const handleRemoveCapTtd = () => {
+    setFeedback(null);
+    startTransition(async () => {
+      setFormData((prev) => ({ ...prev, capTtdKepsekUrl: null }));
+      const res = await updateCapTtdKepsekAction(null);
+      if (res.success) {
+        setFeedback({ type: "success", message: res.message });
+      } else {
+        setFeedback({ type: "error", message: res.message });
+      }
+    });
   };
 
   return (
@@ -449,6 +501,116 @@ export function SekolahClient({ initialData }: SekolahClientProps) {
                   className="w-full px-3.5 py-2.5 rounded-xl bg-white border border-slate-200 text-xs font-mono font-bold text-slate-800 focus:outline-none focus:border-blue-500 shadow-xs"
                 />
                 <p className="text-[10px] text-slate-400 mt-1">Kosongkan atau beri tanda strip (-) jika belum memiliki NIP.</p>
+              </div>
+
+              {/* KOLOM UPLOAD CAP SEKOLAH & TTD KEPSEK (AUTO TRANSPARAN) */}
+              <div className="md:col-span-2 pt-2">
+                <label className="block text-xs font-bold text-slate-700 mb-2">
+                  Upload File &ldquo;CAP Sekolah &amp; TTD KEPSEK&rdquo; (.jpg, .jpeg, .png — Otomatis Transparan)
+                </label>
+                <div className="p-5 rounded-2xl bg-slate-50/90 border border-slate-200 flex flex-col lg:flex-row items-center justify-between gap-6">
+                  <div className="flex flex-col sm:flex-row items-center gap-4 w-full lg:w-auto">
+                    <div
+                      className="w-48 h-32 rounded-2xl border-2 border-slate-200 flex items-center justify-center p-2 shrink-0 overflow-hidden"
+                      style={{
+                        backgroundImage:
+                          "linear-gradient(45deg, #f1f5f9 25%, transparent 25%), linear-gradient(-45deg, #f1f5f9 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #f1f5f9 75%), linear-gradient(-45deg, transparent 75%, #f1f5f9 75%)",
+                        backgroundSize: "14px 14px",
+                        backgroundPosition: "0 0, 0 7px, 7px -7px, -7px 0px",
+                        backgroundColor: "#ffffff",
+                      }}
+                    >
+                      {formData.capTtdKepsekUrl ? (
+                        <img
+                          src={formData.capTtdKepsekUrl}
+                          alt="CAP Sekolah & TTD KEPSEK"
+                          className="max-h-full max-w-full object-contain"
+                        />
+                      ) : (
+                        <div className="text-center text-slate-400 px-2">
+                          <i className="fa-solid fa-stamp text-2xl mb-1 block" />
+                          <span className="text-[10px] font-bold">
+                            Belum Ada CAP &amp; TTD Kepsek
+                          </span>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="space-y-2.5 text-center sm:text-left">
+                      <input
+                        ref={capFileInputRef}
+                        type="file"
+                        accept=".jpg,.jpeg,.png,image/jpeg,image/png"
+                        onChange={handleUploadCapTtd}
+                        className="hidden"
+                      />
+                      <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2">
+                        <button
+                          type="button"
+                          disabled={isProcessingCap || isPending}
+                          onClick={() => capFileInputRef.current?.click()}
+                          className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition inline-flex items-center gap-2 cursor-pointer shadow-sm disabled:opacity-50"
+                        >
+                          <i
+                            className={`fa-solid ${
+                              isProcessingCap ? "fa-spinner fa-spin" : "fa-wand-magic-sparkles"
+                            }`}
+                          />
+                          <span>
+                            {isProcessingCap
+                              ? "Menghapus Background..."
+                              : "Upload CAP Sekolah & TTD KEPSEK"}
+                          </span>
+                        </button>
+                        {formData.capTtdKepsekUrl && (
+                          <button
+                            type="button"
+                            disabled={isProcessingCap || isPending}
+                            onClick={handleRemoveCapTtd}
+                            className="px-3 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-700 text-xs font-bold transition cursor-pointer"
+                          >
+                            <i className="fa-regular fa-trash-can mr-1" />
+                            Hapus
+                          </button>
+                        )}
+                      </div>
+                      <p className="text-[11px] text-slate-500 max-w-md">
+                        Unggah gambar gabungan stempel sekolah &amp; tanda tangan Kepala Sekolah berekstensi <b>.jpg, .jpeg, atau .png</b>. Latar kertas putih otomatis dihapus menjadi transparan dan disematkan pada setiap nama Kepala Sekolah di seluruh berkas ekspor (Leger, Rekap Presensi, &amp; E-Rapor).
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Simulasi Pratinjau Penempatan di Atas Nama Kepala Sekolah */}
+                  <div className="w-full lg:w-64 p-3.5 rounded-2xl bg-white border border-slate-200 text-center shrink-0">
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">
+                      Pratinjau pada Berkas Ekspor
+                    </p>
+                    <p className="text-[10px] text-slate-600 leading-tight">
+                      Mengetahui,
+                      <br />
+                      Kepala Sekolah
+                    </p>
+                    <div className="h-14 flex items-center justify-center my-0.5">
+                      {formData.capTtdKepsekUrl ? (
+                        <img
+                          src={formData.capTtdKepsekUrl}
+                          alt="Simulasi CAP & TTD"
+                          className="max-h-16 max-w-[160px] object-contain"
+                        />
+                      ) : (
+                        <span className="text-[10px] italic text-slate-300">
+                          (Area CAP &amp; TTD Transparan)
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[11px] font-extrabold underline text-slate-800 truncate">
+                      {formData.namaKepsek || "Kepala Sekolah"}
+                    </p>
+                    <p className="text-[10px] font-mono text-slate-500">
+                      NIP. {formData.nipKepsek || "-"}
+                    </p>
+                  </div>
+                </div>
               </div>
             </div>
           </div>

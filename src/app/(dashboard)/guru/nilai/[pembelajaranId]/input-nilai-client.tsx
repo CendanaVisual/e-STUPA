@@ -7,6 +7,7 @@ import {
   tambahKolomPenilaianAction,
   hapusKolomPenilaianAction,
   generateDefaultPenilaianAction,
+  updateKktpDanBobotAction,
   type KategoriPenilaianInput,
 } from "@/server/actions/penilaian";
 import { hitungNilaiAkhirLengkap } from "@/lib/grading/calc";
@@ -108,6 +109,25 @@ export default function InputNilaiClient({
   // Form state Tambah Kolom Asesmen
   const [newKategori, setNewKategori] = useState<KategoriPenilaianInput>("HARIAN");
   const [newNamaKolom, setNewNamaKolom] = useState<string>("");
+
+  // State Pengaturan Mandiri KKTP & Bobot Asesmen
+  const [liveKktp, setLiveKktp] = useState<number>(pembelajaran.kktp);
+  const [liveBobotHarian, setLiveBobotHarian] = useState<number>(pembelajaran.bobotHarian);
+  const [liveBobotUts, setLiveBobotUts] = useState<number>(pembelajaran.bobotUts);
+  const [liveBobotUas, setLiveBobotUas] = useState<number>(pembelajaran.bobotUas);
+
+  const [showConfigModal, setShowConfigModal] = useState<boolean>(false);
+  const [formKktp, setFormKktp] = useState<number>(pembelajaran.kktp);
+  const [formBobotHarian, setFormBobotHarian] = useState<number>(pembelajaran.bobotHarian);
+  const [formBobotUts, setFormBobotUts] = useState<number>(pembelajaran.bobotUts);
+  const [formBobotUas, setFormBobotUas] = useState<number>(pembelajaran.bobotUas);
+
+  useEffect(() => {
+    setLiveKktp(pembelajaran.kktp);
+    setLiveBobotHarian(pembelajaran.bobotHarian);
+    setLiveBobotUts(pembelajaran.bobotUts);
+    setLiveBobotUas(pembelajaran.bobotUas);
+  }, [pembelajaran.kktp, pembelajaran.bobotHarian, pembelajaran.bobotUts, pembelajaran.bobotUas]);
 
   // Sync baseline when server props refresh (e.g. after adding/removing a column), preserving unsaved edits!
   useEffect(() => {
@@ -304,9 +324,9 @@ export default function InputNilaiClient({
           uas: uasVals,
         },
         {
-          bobotHarian: pembelajaran.bobotHarian,
-          bobotUts: pembelajaran.bobotUts,
-          bobotUas: pembelajaran.bobotUas,
+          bobotHarian: liveBobotHarian,
+          bobotUts: liveBobotUts,
+          bobotUas: liveBobotUas,
         }
       );
 
@@ -314,12 +334,12 @@ export default function InputNilaiClient({
         rataTp: calc.rataHarian,
         rataSlm: calc.rataSlm,
         nilaiAkhir: calc.nilaiAkhir,
-        isTuntas: calc.nilaiAkhir !== null && calc.nilaiAkhir >= pembelajaran.kktp,
+        isTuntas: calc.nilaiAkhir !== null && calc.nilaiAkhir >= liveKktp,
       };
     }
 
     return map;
-  }, [anggotaList, penilaianList, scores, pembelajaran.bobotHarian, pembelajaran.bobotUts, pembelajaran.bobotUas, pembelajaran.kktp]);
+  }, [anggotaList, penilaianList, scores, liveBobotHarian, liveBobotUts, liveBobotUas, liveKktp]);
 
   const handleCellChange = (penilaianId: string, siswaId: string, value: string) => {
     if (isReadOnly) return;
@@ -390,6 +410,47 @@ export default function InputNilaiClient({
     startTransition(async () => {
       const res = await generateDefaultPenilaianAction(pembelajaran.id);
       if (res.success) {
+        setFeedback({ type: "success", message: res.message });
+        router.refresh();
+      } else {
+        setFeedback({ type: "error", message: res.message });
+      }
+    });
+  };
+
+  const openPengaturanKktpModal = () => {
+    if (isReadOnly) return;
+    setFormKktp(liveKktp);
+    setFormBobotHarian(liveBobotHarian);
+    setFormBobotUts(liveBobotUts);
+    setFormBobotUas(liveBobotUas);
+    setShowConfigModal(true);
+  };
+
+  const totalFormBobot =
+    (Number.isNaN(formBobotHarian) ? 0 : formBobotHarian) +
+    (Number.isNaN(formBobotUts) ? 0 : formBobotUts) +
+    (Number.isNaN(formBobotUas) ? 0 : formBobotUas);
+
+  const handleSimpanKktpDanBobot = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (isReadOnly) return;
+    persistDraftNow(scores);
+
+    startTransition(async () => {
+      const res = await updateKktpDanBobotAction(pembelajaran.id, {
+        kktp: formKktp,
+        bobotHarian: formBobotHarian,
+        bobotUts: formBobotUts,
+        bobotUas: formBobotUas,
+      });
+
+      if (res.success) {
+        setLiveKktp(Math.round(formKktp));
+        setLiveBobotHarian(Math.round(formBobotHarian));
+        setLiveBobotUts(Math.round(formBobotUts));
+        setLiveBobotUas(Math.round(formBobotUas));
+        setShowConfigModal(false);
         setFeedback({ type: "success", message: res.message });
         router.refresh();
       } else {
@@ -473,13 +534,26 @@ export default function InputNilaiClient({
             {pembelajaran.mapelNama} — {pembelajaran.rombelNama}
           </h1>
           <p className="text-xs text-slate-500 font-medium mt-0.5">
-            Bobot Asesmen: Formatif/TP {pembelajaran.bobotHarian}% • SLM/STS{" "}
-            {pembelajaran.bobotUts}% • SAS {pembelajaran.bobotUas}% • KKTP {pembelajaran.kktp}
+            Bobot Asesmen: Formatif/TP {liveBobotHarian}% • SLM/STS{" "}
+            {liveBobotUts}% • SAS {liveBobotUas}% • KKTP {liveKktp}
             {isReadOnly && " • 🔒 Semester dikunci (read-only)"}
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2.5">
+          {/* Tombol Edit Mandiri KKTP & Bobot Asesmen */}
+          {!isReadOnly && (
+            <button
+              type="button"
+              onClick={openPengaturanKktpModal}
+              disabled={isPending}
+              className="py-2.5 px-4 rounded-xl bg-white hover:bg-blue-50 border border-blue-200 text-blue-700 text-xs font-bold shadow-xs transition flex items-center gap-2 cursor-pointer"
+            >
+              <i className="fa-solid fa-sliders text-xs" />
+              <span>Atur KKTP &amp; Bobot</span>
+            </button>
+          )}
+
           {/* Indikator Koneksi & Auto-Draft */}
           <div
             className={`px-3 py-2 rounded-xl border text-[11px] font-bold flex items-center gap-2 ${
@@ -804,6 +878,164 @@ export default function InputNilaiClient({
           </table>
         </div>
       </form>
+
+      {/* MODAL ATUR MANDIRI KKTP & BOBOT ASESMEN */}
+      {showConfigModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/45 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl p-6 sm:p-7 max-w-md w-full shadow-2xl border border-slate-200 space-y-5">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-blue-50 border border-blue-200 text-blue-600 flex items-center justify-center">
+                  <i className="fa-solid fa-sliders" />
+                </div>
+                <div>
+                  <h3 className="text-sm sm:text-base font-extrabold text-slate-800">
+                    Edit Mandiri KKTP &amp; Bobot Asesmen
+                  </h3>
+                  <p className="text-[11px] text-slate-500">
+                    {pembelajaran.mapelNama} • {pembelajaran.rombelNama}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowConfigModal(false)}
+                className="w-8 h-8 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-100 flex items-center justify-center cursor-pointer"
+              >
+                <i className="fa-solid fa-xmark" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSimpanKktpDanBobot} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                  Nilai KKTP Minimum (0 – 100) <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="number"
+                  required
+                  min={0}
+                  max={100}
+                  value={formKktp}
+                  onChange={(e) => setFormKktp(parseInt(e.target.value || "0", 10))}
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 focus:bg-white border border-slate-200 text-sm font-mono font-extrabold text-blue-700 focus:outline-none focus:border-blue-500"
+                />
+                <p className="text-[10px] text-slate-400 mt-1">
+                  Menentukan batas ketuntasan minimal siswa (Tuntas / Remedial) dan deskripsi capaian TP.
+                </p>
+              </div>
+
+              <div className="space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-700">
+                    Bobot Asesmen Nilai Akhir (%)
+                  </span>
+                  <span
+                    className={`px-2.5 py-0.5 rounded-full text-[10px] font-mono font-extrabold border ${
+                      totalFormBobot === 100
+                        ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                        : "bg-rose-50 text-rose-700 border-rose-200"
+                    }`}
+                  >
+                    Total: {totalFormBobot}% {totalFormBobot === 100 ? "✓" : "(Wajib 100%)"}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                      Formatif / TP (%)
+                    </label>
+                    <input
+                      type="number"
+                      required
+                      min={0}
+                      max={100}
+                      value={formBobotHarian}
+                      onChange={(e) => setFormBobotHarian(parseInt(e.target.value || "0", 10))}
+                      className="w-full px-3 py-2 rounded-xl bg-slate-50 focus:bg-white border border-slate-200 text-xs font-mono font-bold text-center text-slate-800 focus:outline-none focus:border-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                      SLM / STS (%)
+                    </label>
+                    <input
+                      type="number"
+                      required
+                      min={0}
+                      max={100}
+                      value={formBobotUts}
+                      onChange={(e) => setFormBobotUts(parseInt(e.target.value || "0", 10))}
+                      className="w-full px-3 py-2 rounded-xl bg-slate-50 focus:bg-white border border-slate-200 text-xs font-mono font-bold text-center text-slate-800 focus:outline-none focus:border-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                      SAS (%)
+                    </label>
+                    <input
+                      type="number"
+                      required
+                      min={0}
+                      max={100}
+                      value={formBobotUas}
+                      onChange={(e) => setFormBobotUas(parseInt(e.target.value || "0", 10))}
+                      className="w-full px-3 py-2 rounded-xl bg-slate-50 focus:bg-white border border-slate-200 text-xs font-mono font-bold text-center text-slate-800 focus:outline-none focus:border-blue-500"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                  <span className="text-[10px] text-slate-400 font-semibold mr-1">Preset cepat:</span>
+                  {[
+                    [50, 25, 25],
+                    [40, 30, 30],
+                    [60, 20, 20],
+                    [34, 33, 33],
+                  ].map(([h, u, s]) => (
+                    <button
+                      key={`${h}-${u}-${s}`}
+                      type="button"
+                      onClick={() => {
+                        setFormBobotHarian(h);
+                        setFormBobotUts(u);
+                        setFormBobotUas(s);
+                      }}
+                      className="px-2 py-0.5 rounded-md bg-slate-100 hover:bg-blue-50 hover:text-blue-700 text-slate-600 text-[10px] font-mono font-bold cursor-pointer transition"
+                    >
+                      {h}/{u}/{s}%
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="p-3 rounded-xl bg-blue-50/70 border border-blue-200/70 text-[11px] text-blue-800">
+                <i className="fa-solid fa-arrows-rotate mr-1.5" />
+                Perubahan langsung menghitung ulang Nilai Akhir secara realtime dan tersinkronisasi ke database Superadmin.
+              </div>
+
+              <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setShowConfigModal(false)}
+                  className="px-4 py-2 rounded-xl border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-50 cursor-pointer"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  disabled={isPending || totalFormBobot !== 100}
+                  className="px-5 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-teal-500 hover:from-blue-700 hover:to-teal-600 text-white text-xs font-bold transition flex items-center gap-2 cursor-pointer shadow-sm disabled:opacity-50"
+                >
+                  <i className={`fa-solid ${isPending ? "fa-spinner fa-spin" : "fa-check"}`} />
+                  <span>{isPending ? "Menyimpan..." : "Simpan & Sinkronkan"}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
