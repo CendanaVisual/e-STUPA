@@ -1,13 +1,19 @@
 import { db } from "@/lib/db";
 import { requireRole } from "@/lib/auth/session";
 import LegerClient from "@/components/leger/leger-client";
+import {
+  buildDeskripsiCapaianTp,
+  resolveTpDeskripsiText,
+  type TpScoreEntry,
+} from "@/lib/grading/calc";
 
 export default async function GuruLegerPage(props: {
-  searchParams?: Promise<{ rombelId?: string }>;
+  searchParams?: Promise<{ rombelId?: string; pembelajaranId?: string }>;
 }) {
   const session = await requireRole("GURU");
   const sp = props?.searchParams ? await props.searchParams : {};
   const rawRombelId = sp?.rombelId;
+  const rawPembelajaranId = sp?.pembelajaranId;
 
   const user = await db.user.findUnique({
     where: { id: session.userId },
@@ -18,6 +24,13 @@ export default async function GuruLegerPage(props: {
     where: { isAktif: true },
     include: { tahunAjaran: true },
   });
+
+  const normJenisPtk = user?.gtk?.jenisPtk?.toLowerCase().trim() || "";
+  const isGuruKelasPtk = normJenisPtk.includes("guru kelas");
+  const isGuruMapelPtk =
+    normJenisPtk.includes("mapel") ||
+    normJenisPtk.includes("bidang studi") ||
+    (Boolean(normJenisPtk) && !isGuruKelasPtk);
 
   const rombelList =
     activeSemester && user?.gtkId
@@ -62,6 +75,9 @@ export default async function GuruLegerPage(props: {
           },
           pembelajaran: {
             include: {
+              gtk: {
+                select: { id: true, nama: true, nip: true },
+              },
               mapel: {
                 select: { id: true, kode: true, nama: true, kelompok: true },
               },
@@ -72,25 +88,120 @@ export default async function GuruLegerPage(props: {
       })
     : null;
 
+  // Tentukan apakah guru yang login tampil sebagai Guru Mapel pada rombel ini:
+  // Berlaku jika jenisPtk adalah Guru Mapel, ATAU bukan Guru Kelas dan bukan Wali Kelas rombel ini.
+  const isWaliRombelIni = Boolean(
+    user?.gtkId && selectedRombel?.waliKelas?.id === user.gtkId
+  );
+  const isGuruMapel = isGuruMapelPtk || (!isGuruKelasPtk && !isWaliRombelIni && Boolean(user?.gtkId));
+
+  const guruPembelajaranIds = selectedRombel
+    ? selectedRombel.pembelajaran
+        .filter((p) => p.gtkId === user?.gtkId)
+        .map((p) => p.id)
+    : [];
+
   const pembelajaranIds = selectedRombel?.pembelajaran.map((p) => p.id) || [];
-  const nilaiRaporList =
-    pembelajaranIds.length > 0
-      ? await db.nilaiRapor.findMany({
-          where: { pembelajaranId: { in: pembelajaranIds } },
-          select: {
-            siswaId: true,
-            pembelajaranId: true,
-            nilaiAkhir: true,
-          },
-        })
-      : [];
+
+  const [nilaiRaporList, penilaianList, masterTpsAll] =
+    pembelajaranIds.length > 0 && selectedRombel
+      ? await Promise.all([
+          db.nilaiRapor.findMany({
+            where: { pembelajaranId: { in: pembelajaranIds } },
+            select: {
+              siswaId: true,
+              pembelajaranId: true,
+              nilaiAkhir: true,
+              capaianTertinggi: true,
+              capaianTerendah: true,
+            },
+          }),
+          isGuruMapel
+            ? db.penilaian.findMany({
+                where: {
+                  pembelajaranId: {
+                    in: guruPembelajaranIds.length > 0 ? guruPembelajaranIds : pembelajaranIds,
+                  },
+                  kategori: "HARIAN",
+                },
+                include: { nilai: true },
+                orderBy: { urutan: "asc" },
+              })
+            : Promise.resolve([]),
+          isGuruMapel && activeSemester
+            ? db.tujuanPembelajaran.findMany({
+                where: {
+                  semesterId: activeSemester.id,
+                  tingkat: selectedRombel.tingkat,
+                },
+                orderBy: [{ urutan: "asc" }, { kodeTp: "asc" }],
+              })
+            : Promise.resolve([]),
+        ])
+      : [[], [], []];
 
   const nilaiMap: Record<string, number> = {};
+  const deskripsiMap: Record<string, string> = {};
+
   nilaiRaporList.forEach((nr) => {
+    const key = `${nr.siswaId}_${nr.pembelajaranId}`;
     if (nr.nilaiAkhir !== null) {
-      nilaiMap[`${nr.siswaId}_${nr.pembelajaranId}`] = Number(nr.nilaiAkhir);
+      nilaiMap[key] = Number(nr.nilaiAkhir);
+    }
+    const combinedSaved = [nr.capaianTertinggi, nr.capaianTerendah]
+      .filter((s): s is string => Boolean(s && s.trim()))
+      .join(" ");
+    if (combinedSaved) {
+      deskripsiMap[key] = combinedSaved;
     }
   });
+
+  // Lengkapi deskripsiMap otomatis dari nilai TP jika belum tersimpan di NilaiRapor
+  if (isGuruMapel && selectedRombel) {
+    const targetPembelajarans =
+      guruPembelajaranIds.length > 0
+        ? selectedRombel.pembelajaran.filter((p) => guruPembelajaranIds.includes(p.id))
+        : selectedRombel.pembelajaran;
+
+    for (const p of targetPembelajarans) {
+      const kktp = p.kktp ?? 75;
+      const pCols = penilaianList.filter((col) => col.pembelajaranId === p.id);
+      const pMasterTps = masterTpsAll.filter((tp) => tp.mapelId === p.mapel.id);
+
+      for (const agg of selectedRombel.anggota) {
+        const key = `${agg.siswa.id}_${p.id}`;
+        if (deskripsiMap[key]) continue;
+
+        const tpEntries: TpScoreEntry[] = [];
+        for (const col of pCols) {
+          const n = col.nilai.find((item) => item.siswaId === agg.siswa.id);
+          if (n && n.nilai !== null) {
+            tpEntries.push({
+              kode: col.nama,
+              deskripsi: resolveTpDeskripsiText(col, pMasterTps),
+              nilai: Number(n.nilai),
+            });
+          }
+        }
+
+        if (tpEntries.length > 0) {
+          const built = buildDeskripsiCapaianTp(tpEntries, kktp);
+          if (built.deskripsiGabungan) {
+            deskripsiMap[key] = built.deskripsiGabungan;
+          }
+        } else if (nilaiMap[key] !== undefined && pMasterTps.length > 0) {
+          // Jika baru ada Nilai Akhir dan sudah ada pemetaan TP, beri deskripsi berbasis TP pertama
+          const score = nilaiMap[key];
+          const firstTp = pMasterTps[0];
+          const cleanText = firstTp.tujuanPembelajaran.trim().replace(/\.+$/, "");
+          deskripsiMap[key] =
+            score >= kktp
+              ? `Menunjukkan penguasaan yang baik dalam ${cleanText}.`
+              : `Perlu bimbingan lebih lanjut dalam ${cleanText}.`;
+        }
+      }
+    }
+  }
 
   const serializedRombel = selectedRombel
     ? {
@@ -118,6 +229,7 @@ export default async function GuruLegerPage(props: {
         pembelajaran: selectedRombel.pembelajaran.map((p) => ({
           id: p.id,
           kktp: p.kktp,
+          gtkNama: p.gtk?.nama || null,
           mapel: {
             id: p.mapel.id,
             kode: p.mapel.kode,
@@ -134,6 +246,10 @@ export default async function GuruLegerPage(props: {
       selectedRombelId={selectedRombelId}
       selectedRombel={serializedRombel}
       nilaiMap={nilaiMap}
+      deskripsiMap={deskripsiMap}
+      isGuruMapel={isGuruMapel}
+      guruPembelajaranIds={guruPembelajaranIds}
+      initialPembelajaranId={rawPembelajaranId}
       activeSemester={
         activeSemester
           ? {

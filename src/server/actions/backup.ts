@@ -338,6 +338,7 @@ export async function restoreSemesterFull(backupPayload: any): Promise<ActionRes
               },
               update: {
                 rataHarian: nr.rataHarian,
+                rataSlm: nr.rataSlm ?? null,
                 nilaiUts: nr.nilaiUts,
                 nilaiUas: nr.nilaiUas,
                 nilaiAkhir: nr.nilaiAkhir,
@@ -348,6 +349,7 @@ export async function restoreSemesterFull(backupPayload: any): Promise<ActionRes
                 pembelajaranId: pRec.id,
                 siswaId: nr.siswaId,
                 rataHarian: nr.rataHarian,
+                rataSlm: nr.rataSlm ?? null,
                 nilaiUts: nr.nilaiUts,
                 nilaiUas: nr.nilaiUas,
                 nilaiAkhir: nr.nilaiAkhir,
@@ -974,6 +976,7 @@ export async function restorePerMenu(backupPayload: any): Promise<ActionResponse
                   },
                   update: {
                     rataHarian: nr.rataHarian,
+                    rataSlm: nr.rataSlm ?? null,
                     nilaiUts: nr.nilaiUts,
                     nilaiUas: nr.nilaiUas,
                     nilaiAkhir: nr.nilaiAkhir,
@@ -984,6 +987,7 @@ export async function restorePerMenu(backupPayload: any): Promise<ActionResponse
                     pembelajaranId: pRec.id,
                     siswaId: nr.siswaId,
                     rataHarian: nr.rataHarian,
+                    rataSlm: nr.rataSlm ?? null,
                     nilaiUts: nr.nilaiUts,
                     nilaiUas: nr.nilaiUas,
                     nilaiAkhir: nr.nilaiAkhir,

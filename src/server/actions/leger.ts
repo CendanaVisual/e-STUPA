@@ -4,17 +4,143 @@ import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
 import { requireAuth } from "@/lib/auth/session";
 import { getSemesterAktif } from "@/lib/services/semester";
+import {
+  hitungNilaiAkhirLengkap,
+  buildDeskripsiCapaianTp,
+  resolveTpDeskripsiText,
+  type TpScoreEntry,
+} from "@/lib/grading/calc";
 
 export type ActionResponse = {
   success: boolean;
   message: string;
-  data?: any;
+  data?: unknown;
 };
+
+const SPECIAL_MAPEL_META: Record<
+  string,
+  {
+    codes: string[];
+    nameKeywords: string[];
+    defaultKode: string;
+    defaultNama: string;
+    kelompok: string;
+    urutan: number;
+  }
+> = {
+  BB: {
+    codes: ["BB", "MULOK", "BALI", "BD"],
+    nameKeywords: ["Bahasa Bali", "Muatan Lokal", "Mulok"],
+    defaultKode: "BB",
+    defaultNama: "Muatan Lokal (Bahasa Bali)",
+    kelompok: "Muatan Lokal",
+    urutan: 9,
+  },
+  MULOK: {
+    codes: ["BB", "MULOK", "BALI", "BD"],
+    nameKeywords: ["Bahasa Bali", "Muatan Lokal", "Mulok"],
+    defaultKode: "BB",
+    defaultNama: "Muatan Lokal (Bahasa Bali)",
+    kelompok: "Muatan Lokal",
+    urutan: 9,
+  },
+  PJOK: {
+    codes: ["PJOK", "PENJAS"],
+    nameKeywords: ["Jasmani", "PJOK", "Olahraga"],
+    defaultKode: "PJOK",
+    defaultNama: "Pendidikan Jasmani, Olahraga, dan Kesehatan",
+    kelompok: "Umum",
+    urutan: 6,
+  },
+  PAH: {
+    codes: ["PAH"],
+    nameKeywords: ["Agama Hindu"],
+    defaultKode: "PAH",
+    defaultNama: "Pendidikan Agama Hindu dan Budi Pekerti",
+    kelompok: "Umum",
+    urutan: 1,
+  },
+  PAI: {
+    codes: ["PAI"],
+    nameKeywords: ["Agama Islam"],
+    defaultKode: "PAI",
+    defaultNama: "Pendidikan Agama Islam dan Budi Pekerti",
+    kelompok: "Umum",
+    urutan: 1,
+  },
+  PAK: {
+    codes: ["PAK"],
+    nameKeywords: ["Agama Kristen"],
+    defaultKode: "PAK",
+    defaultNama: "Pendidikan Agama Kristen dan Budi Pekerti",
+    kelompok: "Umum",
+    urutan: 1,
+  },
+  PAKAT: {
+    codes: ["PAKAT", "PAKTL"],
+    nameKeywords: ["Agama Katolik"],
+    defaultKode: "PAKAT",
+    defaultNama: "Pendidikan Agama Katolik dan Budi Pekerti",
+    kelompok: "Umum",
+    urutan: 1,
+  },
+  PABUD: {
+    codes: ["PABUD"],
+    nameKeywords: ["Agama Buddha", "Agama Budha"],
+    defaultKode: "PABUD",
+    defaultNama: "Pendidikan Agama Buddha dan Budi Pekerti",
+    kelompok: "Umum",
+    urutan: 1,
+  },
+  PAB: {
+    codes: ["PAB"],
+    nameKeywords: ["Pendidikan Agama dan Budi Pekerti"],
+    defaultKode: "PAB",
+    defaultNama: "Pendidikan Agama dan Budi Pekerti",
+    kelompok: "Umum",
+    urutan: 1,
+  },
+};
+
+async function resolveOrEnsureMapel(rawTargetKode: string) {
+  const norm = rawTargetKode.trim().toUpperCase();
+  const meta = SPECIAL_MAPEL_META[norm];
+
+  if (meta) {
+    const existing = await db.mapel.findFirst({
+      where: {
+        OR: [
+          ...meta.codes.map((c) => ({ kode: { equals: c, mode: "insensitive" as const } })),
+          ...meta.nameKeywords.map((kw) => ({ nama: { contains: kw, mode: "insensitive" as const } })),
+        ],
+      },
+      orderBy: { urutan: "asc" },
+    });
+
+    if (existing) return existing;
+
+    return db.mapel.create({
+      data: {
+        kode: meta.defaultKode,
+        nama: meta.defaultNama,
+        kelompok: meta.kelompok,
+        urutan: meta.urutan,
+        isAktif: true,
+      },
+    });
+  }
+
+  return db.mapel.findFirst({
+    where: {
+      kode: { equals: norm, mode: "insensitive" },
+    },
+  });
+}
 
 /**
  * Tarik Nilai Khusus:
- * Menarik & mensinkronisasi nilai untuk mapel Mulok (BB), PJOK, dan 5 pilihan Pendidikan Agama
- * (PAH, PAI, PAK, PAKAT, PABUD, PAB).
+ * Menarik & mensinkronisasi nilai untuk mapel Mulok Bahasa Bali (BB / MULOK), PJOK,
+ * dan 5 pilihan Pendidikan Agama (PAH, PAI, PAK, PAKAT, PABUD, PAB).
  */
 export async function tarikNilaiKhusus(
   rombelId: string,
@@ -42,10 +168,8 @@ export async function tarikNilaiKhusus(
       return { success: false, message: "Data rombel atau semester aktif tidak ditemukan." };
     }
 
-    // Cari mapel berdasarkan kode
-    const mapel = await db.mapel.findUnique({
-      where: { kode: targetMapelKode },
-    });
+    // Cari mapel secara fleksibel (mendukung kode BB maupun MULOK untuk Bahasa Bali)
+    const mapel = await resolveOrEnsureMapel(targetMapelKode);
 
     if (!mapel) {
       return {
@@ -58,18 +182,32 @@ export async function tarikNilaiKhusus(
     let pembelajaran = rombel.pembelajaran.find((p) => p.mapelId === mapel.id);
 
     if (!pembelajaran) {
-      // Cari guru pengampu yang cocok (misalnya guru mapel agama/pjok atau wali kelas)
-      const potentialGtk = await db.gtk.findFirst({
+      // Prioritas 1: Guru yang sudah mengampu mapel yang sama di rombel lain pada semester aktif
+      const existingSameMapel = await db.pembelajaran.findFirst({
         where: {
-          OR: [
-            { jenisPtk: { contains: mapel.kelompok || "Mapel", mode: "insensitive" } },
-            { id: rombel.waliKelasId || undefined },
-          ],
+          semesterId: semester.id,
+          mapelId: mapel.id,
         },
+        select: { gtkId: true },
       });
 
-      const fallbackGtk = potentialGtk || (await db.gtk.findFirst());
-      if (!fallbackGtk) {
+      // Prioritas 2: Guru Mapel aktif
+      const guruMapelGtk = !existingSameMapel
+        ? await db.gtk.findFirst({
+            where: {
+              isAktif: true,
+              jenisPtk: { contains: "Mapel", mode: "insensitive" },
+            },
+          })
+        : null;
+
+      const fallbackGtkId =
+        existingSameMapel?.gtkId ||
+        guruMapelGtk?.id ||
+        rombel.waliKelasId ||
+        (await db.gtk.findFirst({ select: { id: true } }))?.id;
+
+      if (!fallbackGtkId) {
         return { success: false, message: "Tidak ada data guru untuk ditugaskan ke mapel ini." };
       }
 
@@ -78,50 +216,80 @@ export async function tarikNilaiKhusus(
           semesterId: semester.id,
           rombelId: rombel.id,
           mapelId: mapel.id,
-          gtkId: fallbackGtk.id,
+          gtkId: fallbackGtkId,
           kktp: 75,
-          bobotHarian: 30,
-          bobotUts: 40,
-          bobotUas: 30,
+          bobotHarian: 50,
+          bobotUts: 25,
+          bobotUas: 25,
         },
         include: { mapel: true },
       });
     }
 
-    // Sinkronkan nilai akhir:
-    // Cek apakah ada penilaian di pembelajaran ini
-    const penilaians = await db.penilaian.findMany({
-      where: { pembelajaranId: pembelajaran.id },
-      include: { nilai: true },
-    });
+    // Ambil penilaian & daftar TP untuk sinkronisasi nilai dan deskripsi capaian
+    const [penilaians, masterTps] = await Promise.all([
+      db.penilaian.findMany({
+        where: { pembelajaranId: pembelajaran.id },
+        include: { nilai: true },
+        orderBy: [{ kategori: "asc" }, { urutan: "asc" }],
+      }),
+      db.tujuanPembelajaran.findMany({
+        where: {
+          semesterId: semester.id,
+          tingkat: rombel.tingkat,
+          mapelId: mapel.id,
+        },
+        orderBy: [{ urutan: "asc" }, { kodeTp: "asc" }],
+      }),
+    ]);
 
+    const kktp = pembelajaran.kktp ?? 75;
     let syncedCount = 0;
 
     for (const agg of rombel.anggota) {
-      // Hitung nilai siswa dari penilaian jika ada
-      let totalNilai = 0;
-      let countNilai = 0;
+      const harianScores: (number | null)[] = [];
+      const slmScores: (number | null)[] = [];
+      const utsScores: (number | null)[] = [];
+      const uasScores: (number | null)[] = [];
+      const tpEntries: TpScoreEntry[] = [];
 
-      penilaians.forEach((pen) => {
+      for (const pen of penilaians) {
         const n = pen.nilai.find((item) => item.siswaId === agg.siswaId);
-        if (n && n.nilai !== null) {
-          totalNilai += Number(n.nilai);
-          countNilai++;
+        const val = n && n.nilai !== null ? Number(n.nilai) : null;
+        if (val === null) continue;
+
+        if (pen.kategori === "HARIAN") {
+          harianScores.push(val);
+          tpEntries.push({
+            kode: pen.nama,
+            deskripsi: resolveTpDeskripsiText(pen, masterTps),
+            nilai: val,
+          });
+        } else if (pen.kategori === "SLM") {
+          slmScores.push(val);
+        } else if (pen.kategori === "UTS") {
+          utsScores.push(val);
+        } else if (pen.kategori === "UAS") {
+          uasScores.push(val);
         }
-      });
+      }
 
-      const existingRapor = await db.nilaiRapor.findUnique({
-        where: {
-          pembelajaranId_siswaId: {
-            pembelajaranId: pembelajaran.id,
-            siswaId: agg.siswaId,
-          },
+      const calc = hitungNilaiAkhirLengkap(
+        {
+          harian: harianScores,
+          slm: slmScores,
+          uts: utsScores,
+          uas: uasScores,
         },
-      });
+        {
+          bobotHarian: pembelajaran.bobotHarian,
+          bobotUts: pembelajaran.bobotUts,
+          bobotUas: pembelajaran.bobotUas,
+        }
+      );
 
-      // Jika ada penilaian nyata, gunakan rata-ratanya; jika belum ada nilai rapor dan belum ada penilaian, biarkan atau pertahankan nilai
-      if (countNilai > 0) {
-        const kalkulasi = Math.round((totalNilai / countNilai) * 10) / 10;
+      if (calc.nilaiAkhir !== null) {
+        const desc = buildDeskripsiCapaianTp(tpEntries, kktp);
         await db.nilaiRapor.upsert({
           where: {
             pembelajaranId_siswaId: {
@@ -130,19 +298,39 @@ export async function tarikNilaiKhusus(
             },
           },
           update: {
-            nilaiAkhir: kalkulasi,
-            rataHarian: kalkulasi,
+            rataHarian: calc.rataHarian,
+            rataSlm: calc.rataSlm,
+            nilaiUts: calc.nilaiUts,
+            nilaiUas: calc.nilaiUas,
+            nilaiAkhir: calc.nilaiAkhir,
+            ...(desc.capaianTertinggi ? { capaianTertinggi: desc.capaianTertinggi } : {}),
+            ...(desc.capaianTerendah ? { capaianTerendah: desc.capaianTerendah } : {}),
           },
           create: {
             pembelajaranId: pembelajaran.id,
             siswaId: agg.siswaId,
-            nilaiAkhir: kalkulasi,
-            rataHarian: kalkulasi,
+            rataHarian: calc.rataHarian,
+            rataSlm: calc.rataSlm,
+            nilaiUts: calc.nilaiUts,
+            nilaiUas: calc.nilaiUas,
+            nilaiAkhir: calc.nilaiAkhir,
+            capaianTertinggi: desc.capaianTertinggi,
+            capaianTerendah: desc.capaianTerendah,
           },
         });
         syncedCount++;
-      } else if (existingRapor) {
-        syncedCount++;
+      } else {
+        const existingRapor = await db.nilaiRapor.findUnique({
+          where: {
+            pembelajaranId_siswaId: {
+              pembelajaranId: pembelajaran.id,
+              siswaId: agg.siswaId,
+            },
+          },
+        });
+        if (existingRapor?.nilaiAkhir !== null && existingRapor?.nilaiAkhir !== undefined) {
+          syncedCount++;
+        }
       }
     }
 
@@ -151,7 +339,10 @@ export async function tarikNilaiKhusus(
 
     return {
       success: true,
-      message: `Berhasil menarik nilai mata pelajaran "${mapel.nama}" (${mapel.kode}) untuk Kelas ${rombel.nama}!`,
+      message:
+        syncedCount > 0
+          ? `Berhasil menarik ${syncedCount} data nilai mata pelajaran "${mapel.nama}" (${mapel.kode}) untuk Kelas ${rombel.nama}!`
+          : `Mata pelajaran "${mapel.nama}" (${mapel.kode}) berhasil ditautkan ke Leger Kelas ${rombel.nama} (belum ada nilai siswa yang diinput oleh guru pengampu).`,
     };
   } catch (err: unknown) {
     console.error("[tarikNilaiKhusus Error]:", err);

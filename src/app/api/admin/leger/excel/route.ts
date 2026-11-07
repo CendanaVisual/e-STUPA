@@ -11,13 +11,18 @@ export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const rombelId = searchParams.get("rombelId");
   const agamaKode = searchParams.get("agamaKode") || "PAH";
+  const mode = searchParams.get("mode") || undefined;
+  const pembelajaranId = searchParams.get("pembelajaranId") || undefined;
 
   if (!rombelId) {
     return NextResponse.json({ error: "Parameter rombelId wajib diisi" }, { status: 400 });
   }
 
   try {
-    const { buffer, fileName } = await buildLegerWorkbook(rombelId, agamaKode);
+    const { buffer, fileName } = await buildLegerWorkbook(rombelId, agamaKode, {
+      mode,
+      pembelajaranId,
+    });
     return new NextResponse(buffer as ArrayBuffer, {
       headers: {
         "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

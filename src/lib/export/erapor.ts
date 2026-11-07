@@ -1,35 +1,46 @@
 import "server-only";
 import ExcelJS from "exceljs";
 import { db } from "@/lib/db";
+import {
+  hitungNilaiAkhirLengkap,
+  buildDeskripsiCapaianTp,
+  resolveTpDeskripsiText,
+  getFaseByTingkat,
+  type TpScoreEntry,
+} from "@/lib/grading/calc";
 
 /**
- * Generator File Ekspor Template Nilai E-Rapor Kurikulum Merdeka
- * Sesuai spesifikasi template resmi:
- * Tab 1: Format_Ekspor_E-Rapor (Format resmi siap impor E-Rapor Kemendikbud)
- * Tab 2: Olah_Nilai_Rinci (Lembar hitung rinci TP 1-4, SLM 1-3, SAS, Predikat & Status)
- * Tab 3: Pengaturan_TP_Bobot (Konfigurasi Bobot, KKTP, & Daftar TP)
- * Tab 4: Statistik_Analisis (Dashboard statistik kelas & distribusi predikat)
+ * Generator File Ekspor Nilai E-Rapor Kurikulum Merdeka (100% Data Realtime)
+ * Tab 1: Format_Ekspor_E-Rapor (Nilai Akhir & Tingkat Ketercapaian TP "T" / "R" sesuai nilai nyata)
+ * Tab 2: Olah_Nilai_Rinci (Seluruh kolom pengelolaan nilai TP, SLM, STS, SAS, Rata-rata, Nilai Akhir)
+ * Tab 3: Pengaturan_TP_Bobot (Identitas, Bobot, & Daftar TP otomatis dari menu Tujuan Pembelajaran di Kolom D)
+ * Tab 4: Statistik_Analisis (Statistik kelas berdasarkan data nilai aktual)
  */
 
-interface ExportMetrics {
-  tp1: number | null;
-  tp2: number | null;
-  tp3: number | null;
-  tp4: number | null;
-  slm1: number | null;
-  slm2: number | null;
-  slm3: number | null;
-  sasNonTes: number | null;
-  sasTes: number | null;
-  sas: number | null;
-  avgTP: number | null;
-  avgSLM: number | null;
-  nilaiAkhir: number | null;
-  predikat: string;
-  statusKktp: string;
-  tpTertinggi: string;
-  tpTerendah: string;
+function safeAvg(values: (number | null)[]): number | null {
+  const valid = values.filter((v): v is number => v !== null && !Number.isNaN(v));
+  if (valid.length === 0) return null;
+  return Math.round((valid.reduce((a, b) => a + b, 0) / valid.length) * 100) / 100;
 }
+
+function safeMax(values: (number | null)[]): number | null {
+  const valid = values.filter((v): v is number => v !== null && !Number.isNaN(v));
+  if (valid.length === 0) return null;
+  return Math.max(...valid);
+}
+
+function safeMin(values: (number | null)[]): number | null {
+  const valid = values.filter((v): v is number => v !== null && !Number.isNaN(v));
+  if (valid.length === 0) return null;
+  return Math.min(...valid);
+}
+
+const THIN_BORDER: Partial<ExcelJS.Borders> = {
+  top: { style: "thin", color: { argb: "FFCBD5E1" } },
+  left: { style: "thin", color: { argb: "FFCBD5E1" } },
+  bottom: { style: "thin", color: { argb: "FFCBD5E1" } },
+  right: { style: "thin", color: { argb: "FFCBD5E1" } },
+};
 
 export async function buildEraporWorkbook(pembelajaranId: string) {
   const [p, sekolah] = await Promise.all([
@@ -47,7 +58,10 @@ export async function buildEraporWorkbook(pembelajaranId: string) {
             },
           },
         },
-        penilaian: { include: { nilai: true } },
+        penilaian: {
+          include: { nilai: true },
+          orderBy: [{ urutan: "asc" }],
+        },
         nilaiRapor: true,
       },
     }),
@@ -58,102 +72,203 @@ export async function buildEraporWorkbook(pembelajaranId: string) {
     throw new Error("Pembelajaran tidak ditemukan");
   }
 
-  const kktp = p.kktp ?? 75;
-  const bobotTP = (p.bobotHarian ?? 30) / 100;
-  const bobotSLM = (p.bobotUts ?? 40) / 100;
-  const bobotSAS = (p.bobotUas ?? 30) / 100;
+  // Ambil daftar Tujuan Pembelajaran dari menu Tujuan Pembelajaran sesuai tingkat & mapel
+  const masterTps = await db.tujuanPembelajaran.findMany({
+    where: {
+      semesterId: p.semesterId,
+      tingkat: p.rombel.tingkat,
+      mapelId: p.mapelId,
+    },
+    orderBy: [{ urutan: "asc" }, { kodeTp: "asc" }],
+  });
 
-  const namaSekolah = sekolah?.nama ?? "SMA Negeri 1 Nusantara";
-  const npsn = sekolah?.npsn ?? "50102030";
+  const kktp = p.kktp ?? 75;
+  const bobotHarianPct = p.bobotHarian ?? 50;
+  const bobotUtsPct = p.bobotUts ?? 25;
+  const bobotUasPct = p.bobotUas ?? 25;
+
+  const namaSekolah = sekolah?.nama ?? "SD Negeri 7 Pedungan";
+  const npsn = sekolah?.npsn ?? "50103069";
   const tahunPelajaran = p.semester.tahunAjaran?.nama ?? "2026/2027";
   const semesterStr = `${p.semester.tipe === "GANJIL" ? "Ganjil (1)" : "Genap (2)"} - ${tahunPelajaran}`;
-  const kelasFase = `${p.rombel.nama} / Fase ${p.rombel.tingkat <= 10 ? "E" : "F"}`;
+  const faseStr = getFaseByTingkat(p.rombel.tingkat);
+  const kelasFase = `Kelas ${p.rombel.nama} (Tingkat ${p.rombel.tingkat}) / ${faseStr}`;
   const mapelNama = p.mapel.nama;
   const kodeMapel = p.mapel.kodeErapor || p.mapel.kode || "MAPEL";
   const guruNama = p.gtk?.nama ?? "Guru Pengampu";
   const guruNip = p.gtk?.nip ?? p.gtk?.nuptk ?? "-";
 
-  // Peta nilai per siswa
-  const raporMap = new Map(p.nilaiRapor.map((r) => [r.siswaId, r]));
+  // Kelompokkan seluruh kolom penilaian yang ada di Kelas & Input Nilai
+  const harianCols = p.penilaian
+    .filter((col) => col.kategori === "HARIAN")
+    .sort((a, b) => a.urutan - b.urutan);
+  const slmCols = p.penilaian
+    .filter((col) => col.kategori === "SLM")
+    .sort((a, b) => a.urutan - b.urutan);
+  const utsCols = p.penilaian
+    .filter((col) => col.kategori === "UTS")
+    .sort((a, b) => a.urutan - b.urutan);
+  const uasCols = p.penilaian
+    .filter((col) => col.kategori === "UAS")
+    .sort((a, b) => a.urutan - b.urutan);
 
-  // Ambil nilai per kategori jika ada di database penilaian
-  const nilaiBySiswa = new Map<string, Record<string, number>>();
+  // Peta nilai mentah nyata per sel: `${penilaianId}_${siswaId}` -> number
+  const rawScoreMap = new Map<string, number>();
   p.penilaian.forEach((pen) => {
     pen.nilai.forEach((nv) => {
       if (nv.nilai !== null) {
-        const cur = nilaiBySiswa.get(nv.siswaId) || {};
-        cur[`${pen.kategori}_${pen.urutan}`] = Number(nv.nilai);
-        nilaiBySiswa.set(nv.siswaId, cur);
+        rawScoreMap.set(`${pen.id}_${nv.siswaId}`, Number(nv.nilai));
       }
     });
   });
 
-  // Kompilasi data siswa
+  const raporMap = new Map(p.nilaiRapor.map((r) => [r.siswaId, r]));
+
+  // Tentukan kolom TP yang ditampilkan pada Sheet 1 (Format_Ekspor_E-Rapor):
+  // Sesuaikan TP yang dimunculkan dengan kolom TP yang sudah diisi nilai!
+  // Jika belum ada satu pun TP yang diisi nilai, tampilkan kolom TP yang tersedia (tanpa isi otomatis).
+  const scoredHarianCols = harianCols.filter((col) =>
+    p.rombel.anggota.some((ang) => rawScoreMap.has(`${col.id}_${ang.siswaId}`))
+  );
+
+  const ws1TpCols: Array<{ id: string; nama: string }> =
+    scoredHarianCols.length > 0
+      ? scoredHarianCols.map((c) => ({ id: c.id, nama: c.nama }))
+      : harianCols.length > 0
+      ? harianCols.map((c) => ({ id: c.id, nama: c.nama }))
+      : masterTps.length > 0
+      ? masterTps.map((tp) => ({ id: tp.id, nama: tp.kodeTp }))
+      : [{ id: "__empty_tp_1__", nama: "TP 1" }];
+
+  // Kompilasi metrik setiap siswa secara murni dari data database (tanpa nilai dummy!)
   const studentMetrics = p.rombel.anggota.map((ang, idx) => {
     const s = ang.siswa;
     const r = raporMap.get(s.id);
-    const n = nilaiBySiswa.get(s.id) || {};
 
-    const tp1 = n["HARIAN_1"] ?? (r?.rataHarian ? Number(r.rataHarian) : 85);
-    const tp2 = n["HARIAN_2"] ?? (r?.rataHarian ? Number(r.rataHarian) + 2 : 88);
-    const tp3 = n["HARIAN_3"] ?? (r?.rataHarian ? Number(r.rataHarian) - 1 : 84);
-    const tp4 = n["HARIAN_4"] ?? (r?.rataHarian ? Number(r.rataHarian) : 82);
-    const avgTP = Math.round(((tp1 + tp2 + tp3 + tp4) / 4) * 10) / 10;
+    const tpVals = harianCols.map((col) => rawScoreMap.get(`${col.id}_${s.id}`) ?? null);
+    const slmVals = slmCols.map((col) => rawScoreMap.get(`${col.id}_${s.id}`) ?? null);
+    const utsVals = utsCols.map((col) => rawScoreMap.get(`${col.id}_${s.id}`) ?? null);
+    const uasVals = uasCols.map((col) => rawScoreMap.get(`${col.id}_${s.id}`) ?? null);
 
-    const slm1 = n["UTS_1"] ?? (r?.nilaiUts ? Number(r.nilaiUts) : 86);
-    const slm2 = n["UTS_2"] ?? (r?.nilaiUts ? Number(r.nilaiUts) + 2 : 88);
-    const slm3 = n["UTS_3"] ?? (r?.nilaiUts ? Number(r.nilaiUts) - 2 : 84);
-    const avgSLM = Math.round(((slm1 + slm2 + slm3) / 3) * 10) / 10;
+    const calc = hitungNilaiAkhirLengkap(
+      {
+        harian: tpVals,
+        slm: slmVals,
+        uts: utsVals,
+        uas: uasVals,
+      },
+      {
+        bobotHarian: bobotHarianPct,
+        bobotUts: bobotUtsPct,
+        bobotUas: bobotUasPct,
+      }
+    );
 
-    const sas = n["UAS_1"] ?? (r?.nilaiUas ? Number(r.nilaiUas) : 87);
-    const sasNonTes = Math.round(sas + 1);
-    const sasTes = Math.round(sas - 1);
+    const avgTP =
+      calc.rataHarian ??
+      (r?.rataHarian !== null && r?.rataHarian !== undefined ? Number(r.rataHarian) : null);
+    const avgSLM =
+      calc.rataSlm ??
+      (r?.rataSlm !== null && r?.rataSlm !== undefined ? Number(r.rataSlm) : null);
+    const avgSTS =
+      calc.nilaiUts ??
+      (r?.nilaiUts !== null && r?.nilaiUts !== undefined ? Number(r.nilaiUts) : null);
+    const avgSAS =
+      calc.nilaiUas ??
+      (r?.nilaiUas !== null && r?.nilaiUas !== undefined ? Number(r.nilaiUas) : null);
 
-    const calculatedNA = Math.round(avgTP * bobotTP + avgSLM * bobotSLM + sas * bobotSAS);
-    const nilaiAkhir = r?.nilaiAkhir ? Math.round(Number(r.nilaiAkhir)) : calculatedNA;
+    const nilaiAkhir: number | null =
+      calc.nilaiAkhir !== null
+        ? calc.nilaiAkhir
+        : r?.nilaiAkhir !== null && r?.nilaiAkhir !== undefined
+        ? Number(r.nilaiAkhir)
+        : null;
 
-    let predikat = "D";
-    if (nilaiAkhir >= 90) predikat = "A";
-    else if (nilaiAkhir >= 80) predikat = "B";
-    else if (nilaiAkhir >= kktp) predikat = "C";
+    let predikat = "";
+    let statusKktp = "";
+    if (nilaiAkhir !== null) {
+      if (nilaiAkhir >= 90) predikat = "A";
+      else if (nilaiAkhir >= 80) predikat = "B";
+      else if (nilaiAkhir >= kktp) predikat = "C";
+      else predikat = "D";
 
-    const statusKktp = nilaiAkhir >= kktp ? "Tuntas" : "Perlu Remidial";
+      statusKktp = nilaiAkhir >= kktp ? "Tuntas" : "Perlu Bimbingan";
+    }
 
-    // Hitung TP tertinggi & terendah
-    const tpList = [
-      { code: "TP 1", val: tp1 },
-      { code: "TP 2", val: tp2 },
-      { code: "TP 3", val: tp3 },
-      { code: "TP 4", val: tp4 },
-    ].sort((a, b) => b.val - a.val);
+    // Kumpulkan TP yang benar-benar terisi nilai untuk identifikasi TP Tertinggi ("T") & Terendah ("R")
+    const tpEntriesForDesc: TpScoreEntry[] = [];
+    harianCols.forEach((col) => {
+      const val = rawScoreMap.get(`${col.id}_${s.id}`);
+      if (val !== undefined) {
+        tpEntriesForDesc.push({
+          kode: col.nama,
+          deskripsi: resolveTpDeskripsiText(col, masterTps),
+          nilai: val,
+        });
+      }
+    });
+
+    const descBuilt = buildDeskripsiCapaianTp(tpEntriesForDesc, kktp);
+    const savedDesc = [r?.capaianTertinggi, r?.capaianTerendah]
+      .filter((x): x is string => Boolean(x && x.trim()))
+      .join(" ");
+    const deskripsiCapaian = descBuilt.deskripsiGabungan || savedDesc || "";
+
+    // Tanda "T" (Tertinggi) dan "R" (Terendah) pada kolom ws1TpCols di Sheet 1
+    const ws1TpMarks: string[] = new Array(ws1TpCols.length).fill("");
+    const scoredWs1 = ws1TpCols
+      .map((col, cIdx) => {
+        const val = rawScoreMap.get(`${col.id}_${s.id}`);
+        return val !== undefined ? { cIdx, val } : null;
+      })
+      .filter((item): item is { cIdx: number; val: number } => item !== null);
+
+    if (scoredWs1.length === 1) {
+      ws1TpMarks[scoredWs1[0].cIdx] = scoredWs1[0].val >= kktp ? "T" : "R";
+    } else if (scoredWs1.length >= 2) {
+      let maxPos = 0;
+      for (let i = 1; i < scoredWs1.length; i++) {
+        if (scoredWs1[i].val > scoredWs1[maxPos].val) {
+          maxPos = i;
+        }
+      }
+      let minPos = -1;
+      for (let i = scoredWs1.length - 1; i >= 0; i--) {
+        if (i === maxPos) continue;
+        if (minPos === -1 || scoredWs1[i].val < scoredWs1[minPos].val) {
+          minPos = i;
+        }
+      }
+      ws1TpMarks[scoredWs1[maxPos].cIdx] = "T";
+      if (minPos !== -1) {
+        ws1TpMarks[scoredWs1[minPos].cIdx] = "R";
+      }
+    }
 
     return {
-      no: idx + 1,
+      no: ang.noAbsen ?? idx + 1,
       id: s.id,
-      pdId: s.dapodikId ?? `PD-${s.nisn.slice(-6)}`,
-      nis: s.nis ?? `NIS-${s.nisn.slice(-4)}`,
+      pdId: s.dapodikId ?? "",
+      nis: s.nis ?? "",
       nisn: s.nisn,
       nama: s.nama,
       gender: s.jenisKelamin,
-      tp1,
-      tp2,
-      tp3,
-      tp4,
+      tpVals,
+      slmVals,
+      utsVals,
+      uasVals,
       avgTP,
-      slm1,
-      slm2,
-      slm3,
       avgSLM,
-      sasNonTes,
-      sasTes,
-      sas,
+      avgSTS,
+      avgSAS,
       nilaiAkhir,
+      nilaiAkhirBulat: nilaiAkhir !== null ? Math.round(nilaiAkhir) : null,
       predikat,
       statusKktp,
-      tpTertinggi: tpList[0].code,
-      tpTerendah: tpList[tpList.length - 1].code,
-      capaianTertinggi: r?.capaianTertinggi,
-      capaianTerendah: r?.capaianTerendah,
+      tpTertinggi: descBuilt.tpTertinggiKode,
+      tpTerendah: descBuilt.tpTerendahKode,
+      deskripsiCapaian,
+      ws1TpMarks,
     };
   });
 
@@ -163,15 +278,17 @@ export async function buildEraporWorkbook(pembelajaranId: string) {
   wb.created = new Date();
   wb.modified = new Date();
 
-  // ---------------------------------------------------------------------------
+  // ===========================================================================
   // TAB 1: Format_Ekspor_E-Rapor
-  // ---------------------------------------------------------------------------
+  // ===========================================================================
   const ws1 = wb.addWorksheet("Format_Ekspor_E-Rapor", {
     views: [{ showGridLines: true }],
   });
 
   ws1.addRow(["FORMAT EKSPOR / IMPOR NILAI AKHIR E-RAPOR KURIKULUM MERDEKA"]);
-  ws1.addRow(["Format standar aplikasi E-Rapor Kemendikbudristek. Nilai & Deskripsi Capaian terisi otomatis dari tab 'Olah_Nilai_Rinci'."]);
+  ws1.addRow([
+    "Data dituangkan secara realtime sesuai kelas/tingkat. Ket. Tingkat Ketercapaian TP: 'T' = TP Nilai Tertinggi (Optimal), 'R' = TP Nilai Terendah (Perlu Bimbingan).",
+  ]);
   ws1.addRow([]);
 
   ws1.addRow(["", "Nama Sekolah", namaSekolah, "", "", "Kelas / Fase", kelasFase]);
@@ -180,50 +297,83 @@ export async function buildEraporWorkbook(pembelajaranId: string) {
   ws1.addRow(["", "Mata Pelajaran", mapelNama, "", "", "Kode Mapel", kodeMapel]);
   ws1.addRow([]);
 
-  // Table header baris 9 & 10
-  ws1.addRow([
+  const tpStartColWs1 = 6; // Kolom F
+  const tpEndColWs1 = tpStartColWs1 + ws1TpCols.length - 1;
+  const descColWs1 = tpEndColWs1 + 1;
+  const validColWs1 = descColWs1 + 1;
+
+  const ws1Header1: (string | number)[] = [
     "No",
     "NIS",
     "NISN",
     "Nama Peserta Didik",
     "Nilai Akhir",
     "Tingkat Ketercapaian TP",
-    "", "", "", "", "", "", "", "", "",
-    "Validasi Nilai",
-  ]);
-  ws1.addRow([
-    "", "", "", "", "",
-    "TP. 1", "TP. 2", "TP. 3", "TP. 4", "TP. 5",
-    "TP. 6", "TP. 7", "TP. 8", "TP. 9", "TP. 10",
-    "",
-  ]);
+  ];
+  for (let i = 1; i < ws1TpCols.length; i++) {
+    ws1Header1.push("");
+  }
+  ws1Header1.push("Deskripsi Capaian Kompetensi", "Status Nilai");
 
-  // Merge header cells
-  ws1.mergeCells("A9:A10");
-  ws1.mergeCells("B9:B10");
-  ws1.mergeCells("C9:C10");
-  ws1.mergeCells("D9:D10");
-  ws1.mergeCells("E9:E10");
-  ws1.mergeCells("F9:O9");
-  ws1.mergeCells("P9:P10");
+  const ws1Header2: (string | number)[] = ["", "", "", "", ""];
+  ws1TpCols.forEach((col) => {
+    ws1Header2.push(col.nama);
+  });
+  ws1Header2.push("", "");
+
+  ws1.addRow(ws1Header1); // Baris 9
+  ws1.addRow(ws1Header2); // Baris 10
+
+  ws1.mergeCells(9, 1, 10, 1);
+  ws1.mergeCells(9, 2, 10, 2);
+  ws1.mergeCells(9, 3, 10, 3);
+  ws1.mergeCells(9, 4, 10, 4);
+  ws1.mergeCells(9, 5, 10, 5);
+  if (tpEndColWs1 > tpStartColWs1) {
+    ws1.mergeCells(9, tpStartColWs1, 9, tpEndColWs1);
+  }
+  ws1.mergeCells(9, descColWs1, 10, descColWs1);
+  ws1.mergeCells(9, validColWs1, 10, validColWs1);
 
   studentMetrics.forEach((st) => {
-    ws1.addRow([
+    const rowValues: (string | number | null)[] = [
       st.no,
-      st.nis,
+      st.nis || null,
       st.nisn,
       st.nama,
-      st.nilaiAkhir,
-      st.tp1 >= kktp ? "Tercapai" : "Belum",
-      st.tp2 >= kktp ? "Tercapai" : "Belum",
-      st.tp3 >= kktp ? "Tercapai" : "Belum",
-      st.tp4 >= kktp ? "Tercapai" : "Belum",
-      "", "", "", "", "", "",
-      st.nilaiAkhir !== null ? "Valid" : "Belum Lengkap",
-    ]);
+      st.nilaiAkhirBulat,
+      ...st.ws1TpMarks.map((m) => (m === "" ? null : m)),
+      st.deskripsiCapaian || null,
+      st.nilaiAkhir !== null ? "Lengkap" : null,
+    ];
+    const added = ws1.addRow(rowValues);
+    added.height = 22;
+
+    for (let c = 1; c <= validColWs1; c++) {
+      const cell = added.getCell(c);
+      cell.border = THIN_BORDER;
+      cell.font = { size: 10 };
+      if (c === 4 || c === descColWs1) {
+        cell.alignment = { horizontal: "left", vertical: "middle", wrapText: c === descColWs1 };
+      } else {
+        cell.alignment = { horizontal: "center", vertical: "middle" };
+      }
+
+      if (c >= tpStartColWs1 && c <= tpEndColWs1) {
+        const val = cell.value;
+        if (val === "T") {
+          cell.font = { bold: true, size: 10, color: { argb: "FF047857" } };
+          cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFECFDF5" } };
+        } else if (val === "R") {
+          cell.font = { bold: true, size: 10, color: { argb: "FFB91C1C" } };
+          cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFEF2F2" } };
+        }
+      } else if (c === 5 && st.nilaiAkhirBulat !== null) {
+        cell.font = { bold: true, size: 10, color: { argb: "FF1E3A8A" } };
+      }
+    }
   });
 
-  // Formatting styles for WS1
   ws1.getRow(1).font = { bold: true, size: 13, color: { argb: "FF1E3A8A" } };
   ws1.getRow(2).font = { italic: true, size: 10, color: { argb: "FF475569" } };
   [4, 5, 6, 7].forEach((r) => {
@@ -233,362 +383,544 @@ export async function buildEraporWorkbook(pembelajaranId: string) {
     row.getCell(6).font = { bold: true };
   });
 
-  const headerRow1 = ws1.getRow(9);
-  const headerRow2 = ws1.getRow(10);
-  [headerRow1, headerRow2].forEach((row) => {
-    row.font = { bold: true, size: 10 };
-    row.alignment = { vertical: "middle", horizontal: "center" };
-    row.eachCell((cell) => {
+  [ws1.getRow(9), ws1.getRow(10)].forEach((row) => {
+    row.height = 20;
+    for (let c = 1; c <= validColWs1; c++) {
+      const cell = row.getCell(c);
+      cell.font = { bold: true, size: 10, color: { argb: "FF0F172A" } };
+      cell.alignment = { vertical: "middle", horizontal: "center", wrapText: true };
       cell.fill = {
         type: "pattern",
         pattern: "solid",
-        fgColor: { argb: "FFF1F5F9" },
+        fgColor: { argb: "FFE2E8F0" },
       };
-      cell.border = {
-        top: { style: "thin", color: { argb: "FFCBD5E1" } },
-        left: { style: "thin", color: { argb: "FFCBD5E1" } },
-        bottom: { style: "thin", color: { argb: "FFCBD5E1" } },
-        right: { style: "thin", color: { argb: "FFCBD5E1" } },
-      };
-    });
+      cell.border = THIN_BORDER;
+    }
   });
 
-  ws1.columns = [
+  const ws1ColWidths: { width: number }[] = [
     { width: 6 },
     { width: 12 },
     { width: 14 },
     { width: 32 },
     { width: 12 },
-    { width: 10 },
-    { width: 10 },
-    { width: 10 },
-    { width: 10 },
-    { width: 10 },
-    { width: 10 },
-    { width: 10 },
-    { width: 10 },
-    { width: 10 },
-    { width: 10 },
-    { width: 14 },
   ];
+  ws1TpCols.forEach((col) => {
+    ws1ColWidths.push({ width: Math.max(10, col.nama.length + 4) });
+  });
+  ws1ColWidths.push({ width: 50 });
+  ws1ColWidths.push({ width: 14 });
+  ws1.columns = ws1ColWidths;
 
-  // ---------------------------------------------------------------------------
-  // TAB 2: Olah_Nilai_Rinci
-  // ---------------------------------------------------------------------------
+  // ===========================================================================
+  // TAB 2: Olah_Nilai_Rinci (Keseluruhan Pengelolaan Nilai Realtime)
+  // ===========================================================================
   const ws2 = wb.addWorksheet("Olah_Nilai_Rinci", {
     views: [{ showGridLines: true }],
   });
 
-  ws2.addRow(["LEMBAR PENGOLAHAN NILAI RINCI (FORMATIF, SUMATIF LINGKUP MATERI & SAS)"]);
+  ws2.addRow(["LEMBAR PENGOLAHAN NILAI RINCI (FORMATIF / TP, SUMATIF LINGKUP MATERI, STS & SAS)"]);
   ws2.addRow([
-    "Isi nilai pada kolom TP 1-4, SLM 1-3, dan SAS. Nilai Akhir serta Deskripsi Capaian Kompetensi akan dihitung otomatis dan diteruskan ke tab Format_Ekspor_E-Rapor.",
+    "Menampilkan keseluruhan kolom pengelolaan nilai secara realtime sesuai data pada menu Kelas & Input Nilai (kosong apabila belum diinput).",
   ]);
   ws2.addRow([]);
   ws2.addRow([
-    "Mata Pelajaran:", mapelNama,
-    "", "Kelas / Fase:", kelasFase,
-    "", "Semester / TP:", semesterStr,
-    "", "KKTP Minimum:", kktp,
+    "Mata Pelajaran:",
+    mapelNama,
+    "",
+    "Kelas / Fase:",
+    kelasFase,
+    "",
+    "Semester / TP:",
+    semesterStr,
+    "",
+    "KKTP Minimum:",
+    kktp,
   ]);
   ws2.addRow([]);
   ws2.addRow([]);
 
-  // Table header baris 7 & 8
-  ws2.addRow([
+  const tpDisplayCols =
+    harianCols.length > 0 ? harianCols.map((c) => c.nama) : ["TP 1"];
+  const slmDisplayCols =
+    slmCols.length > 0 ? slmCols.map((c) => c.nama) : ["SLM 1"];
+  const hasUts = utsCols.length > 0;
+  const utsDisplayCols = utsCols.map((c) => c.nama);
+  const uasDisplayCols =
+    uasCols.length > 0 ? uasCols.map((c) => c.nama) : ["SAS"];
+
+  const ws2TopHeader: string[] = [
     "No",
     "ID Peserta Didik (PD_ID)",
     "NIS",
     "NISN",
     "Nama Peserta Didik",
     "L/P",
-    "Asesmen Formatif / Tujuan Pembelajaran (TP)",
-    "", "", "", "",
-    "Sumatif Lingkup Materi (SLM)",
-    "", "", "",
-    "Sumatif Akhir Semester (SAS)",
-    "", "",
-    "Nilai Akhir E-Rapor",
-    "", "",
-    "Identifikasi Capaian TP",
-    "",
-  ]);
+  ];
+  const ws2SubHeader: string[] = ["", "", "", "", "", ""];
 
-  ws2.addRow([
-    "", "", "", "", "", "",
-    "TP 1", "TP 2", "TP 3", "TP 4", "Rata-rata TP",
-    "SLM 1", "SLM 2", "SLM 3", "Rata-rata SLM",
-    "SAS Non-Tes", "SAS Tes", "Nilai SAS",
-    "Nilai Akhir (Rapor)", "Predikat", "Status KKTP",
-    "TP Tertinggi", "TP Terendah",
-  ]);
+  // Grup TP (+ Rata-rata TP)
+  const tpGroupStart = ws2TopHeader.length + 1;
+  ws2TopHeader.push("Asesmen Formatif / Tujuan Pembelajaran (TP)");
+  for (let i = 0; i < tpDisplayCols.length; i++) {
+    if (i > 0) ws2TopHeader.push("");
+    ws2SubHeader.push(tpDisplayCols[i]);
+  }
+  ws2TopHeader.push("");
+  ws2SubHeader.push("Rata-rata TP");
+  const tpGroupEnd = ws2TopHeader.length;
 
-  ws2.mergeCells("A7:A8");
-  ws2.mergeCells("B7:B8");
-  ws2.mergeCells("C7:C8");
-  ws2.mergeCells("D7:D8");
-  ws2.mergeCells("E7:E8");
-  ws2.mergeCells("F7:F8");
-  ws2.mergeCells("G7:K7");
-  ws2.mergeCells("L7:O7");
-  ws2.mergeCells("P7:R7");
-  ws2.mergeCells("S7:U7");
-  ws2.mergeCells("V7:W7");
+  // Grup SLM (+ Rata-rata SLM)
+  const slmGroupStart = ws2TopHeader.length + 1;
+  ws2TopHeader.push("Sumatif Lingkup Materi (SLM)");
+  for (let i = 0; i < slmDisplayCols.length; i++) {
+    if (i > 0) ws2TopHeader.push("");
+    ws2SubHeader.push(slmDisplayCols[i]);
+  }
+  ws2TopHeader.push("");
+  ws2SubHeader.push("Rata-rata SLM");
+  const slmGroupEnd = ws2TopHeader.length;
+
+  // Grup STS (jika ada kolom UTS)
+  let utsGroupStart = -1;
+  let utsGroupEnd = -1;
+  if (hasUts) {
+    utsGroupStart = ws2TopHeader.length + 1;
+    ws2TopHeader.push("Sumatif Tengah Semester (STS)");
+    for (let i = 0; i < utsDisplayCols.length; i++) {
+      if (i > 0) ws2TopHeader.push("");
+      ws2SubHeader.push(utsDisplayCols[i]);
+    }
+    if (utsDisplayCols.length > 1) {
+      ws2TopHeader.push("");
+      ws2SubHeader.push("Rata-rata STS");
+    }
+    utsGroupEnd = ws2TopHeader.length;
+  }
+
+  // Grup SAS
+  const uasGroupStart = ws2TopHeader.length + 1;
+  ws2TopHeader.push("Sumatif Akhir Semester (SAS)");
+  for (let i = 0; i < uasDisplayCols.length; i++) {
+    if (i > 0) ws2TopHeader.push("");
+    ws2SubHeader.push(uasDisplayCols[i]);
+  }
+  if (uasDisplayCols.length > 1) {
+    ws2TopHeader.push("");
+    ws2SubHeader.push("Rata-rata SAS");
+  }
+  const uasGroupEnd = ws2TopHeader.length;
+
+  // Grup Nilai Akhir E-Rapor
+  const naGroupStart = ws2TopHeader.length + 1;
+  ws2TopHeader.push("Nilai Akhir E-Rapor", "", "");
+  ws2SubHeader.push("Nilai Akhir (Rapor)", "Predikat", "Status KKTP");
+  const naGroupEnd = ws2TopHeader.length;
+
+  // Grup Identifikasi Capaian TP
+  const capGroupStart = ws2TopHeader.length + 1;
+  ws2TopHeader.push("Identifikasi & Deskripsi Capaian TP", "", "");
+  ws2SubHeader.push("TP Tertinggi (T)", "TP Terendah (R)", "Deskripsi Capaian");
+  const capGroupEnd = ws2TopHeader.length;
+
+  const totalWs2Cols = ws2TopHeader.length;
+
+  ws2.addRow(ws2TopHeader); // Baris 7
+  ws2.addRow(ws2SubHeader); // Baris 8
+
+  for (let c = 1; c <= 6; c++) {
+    ws2.mergeCells(7, c, 8, c);
+  }
+  if (tpGroupEnd > tpGroupStart) ws2.mergeCells(7, tpGroupStart, 7, tpGroupEnd);
+  if (slmGroupEnd > slmGroupStart) ws2.mergeCells(7, slmGroupStart, 7, slmGroupEnd);
+  if (hasUts && utsGroupEnd > utsGroupStart) ws2.mergeCells(7, utsGroupStart, 7, utsGroupEnd);
+  if (uasGroupEnd > uasGroupStart) ws2.mergeCells(7, uasGroupStart, 7, uasGroupEnd);
+  ws2.mergeCells(7, naGroupStart, 7, naGroupEnd);
+  ws2.mergeCells(7, capGroupStart, 7, capGroupEnd);
+
+  // Kumpulkan nilai numerik per kolom untuk baris statistik bawah
+  const numericColsMatrix: (number | null)[][] = [];
 
   studentMetrics.forEach((st) => {
-    ws2.addRow([
+    const tpCells = harianCols.length > 0 ? st.tpVals : [null];
+    const slmCells = slmCols.length > 0 ? st.slmVals : [null];
+    const utsCells = hasUts
+      ? utsCols.length > 1
+        ? [...st.utsVals, st.avgSTS]
+        : st.utsVals
+      : [];
+    const uasCells =
+      uasCols.length > 0
+        ? uasCols.length > 1
+          ? [...st.uasVals, st.avgSAS]
+          : st.uasVals
+        : [st.avgSAS];
+
+    const numericPortion: (number | null)[] = [
+      ...tpCells,
+      st.avgTP,
+      ...slmCells,
+      st.avgSLM,
+      ...utsCells,
+      ...uasCells,
+      st.nilaiAkhir,
+    ];
+    numericColsMatrix.push(numericPortion);
+
+    const rowData: (string | number | null)[] = [
       st.no,
-      st.pdId,
-      st.nis,
+      st.pdId || null,
+      st.nis || null,
       st.nisn,
       st.nama,
       st.gender,
-      st.tp1,
-      st.tp2,
-      st.tp3,
-      st.tp4,
-      st.avgTP,
-      st.slm1,
-      st.slm2,
-      st.slm3,
-      st.avgSLM,
-      st.sasNonTes,
-      st.sasTes,
-      st.sas,
-      st.nilaiAkhir,
-      st.predikat,
-      st.statusKktp,
-      st.tpTertinggi,
-      st.tpTerendah,
-    ]);
+      ...numericPortion,
+      st.predikat || null,
+      st.statusKktp || null,
+      st.tpTertinggi || null,
+      st.tpTerendah || null,
+      st.deskripsiCapaian || null,
+    ];
+
+    const r = ws2.addRow(rowData);
+    r.height = 20;
+    for (let c = 1; c <= totalWs2Cols; c++) {
+      const cell = r.getCell(c);
+      cell.border = THIN_BORDER;
+      cell.font = { size: 9.5 };
+      if (c === 5 || c === totalWs2Cols) {
+        cell.alignment = { horizontal: "left", vertical: "middle", wrapText: c === totalWs2Cols };
+      } else {
+        cell.alignment = { horizontal: "center", vertical: "middle" };
+      }
+      if (c === naGroupStart && st.nilaiAkhir !== null) {
+        cell.font = { bold: true, size: 9.5, color: { argb: "FF1E3A8A" } };
+      }
+    }
   });
 
-  // Summary statistics rows
-  const count = studentMetrics.length || 1;
-  const avg = (arr: (number | null)[]) => {
-    const valid = arr.filter((x): x is number => x !== null);
-    return valid.length ? Math.round((valid.reduce((a, b) => a + b, 0) / valid.length) * 10) / 10 : 0;
-  };
+  // Baris Ringkasan: Rata-rata Kelas, Nilai Tertinggi, Nilai Terendah (hanya atas sel berisi nilai!)
+  const numSlotCount = numericColsMatrix[0]?.length ?? 0;
+  const colValuesAt = (slotIdx: number) =>
+    numericColsMatrix.map((row) => row[slotIdx] ?? null);
 
-  const avgRow = [
-    "Rata-rata Kelas",
-    "", "", "", "", "",
-    avg(studentMetrics.map((s) => s.tp1)),
-    avg(studentMetrics.map((s) => s.tp2)),
-    avg(studentMetrics.map((s) => s.tp3)),
-    avg(studentMetrics.map((s) => s.tp4)),
-    avg(studentMetrics.map((s) => s.avgTP)),
-    avg(studentMetrics.map((s) => s.slm1)),
-    avg(studentMetrics.map((s) => s.slm2)),
-    avg(studentMetrics.map((s) => s.slm3)),
-    avg(studentMetrics.map((s) => s.avgSLM)),
-    avg(studentMetrics.map((s) => s.sasNonTes)),
-    avg(studentMetrics.map((s) => s.sasTes)),
-    avg(studentMetrics.map((s) => s.sas)),
-    avg(studentMetrics.map((s) => s.nilaiAkhir)),
-    "", "", "", "",
-  ];
-  const maxRow = [
-    "Nilai Tertinggi",
-    "", "", "", "", "",
-    Math.max(...studentMetrics.map((s) => s.tp1 || 0)),
-    Math.max(...studentMetrics.map((s) => s.tp2 || 0)),
-    Math.max(...studentMetrics.map((s) => s.tp3 || 0)),
-    Math.max(...studentMetrics.map((s) => s.tp4 || 0)),
-    Math.max(...studentMetrics.map((s) => s.avgTP || 0)),
-    Math.max(...studentMetrics.map((s) => s.slm1 || 0)),
-    Math.max(...studentMetrics.map((s) => s.slm2 || 0)),
-    Math.max(...studentMetrics.map((s) => s.slm3 || 0)),
-    Math.max(...studentMetrics.map((s) => s.avgSLM || 0)),
-    Math.max(...studentMetrics.map((s) => s.sasNonTes || 0)),
-    Math.max(...studentMetrics.map((s) => s.sasTes || 0)),
-    Math.max(...studentMetrics.map((s) => s.sas || 0)),
-    Math.max(...studentMetrics.map((s) => s.nilaiAkhir || 0)),
-    "", "", "", "",
-  ];
-  const minRow = [
-    "Nilai Terendah",
-    "", "", "", "", "",
-    Math.min(...studentMetrics.map((s) => s.tp1 || 100)),
-    Math.min(...studentMetrics.map((s) => s.tp2 || 100)),
-    Math.min(...studentMetrics.map((s) => s.tp3 || 100)),
-    Math.min(...studentMetrics.map((s) => s.tp4 || 100)),
-    Math.min(...studentMetrics.map((s) => s.avgTP || 100)),
-    Math.min(...studentMetrics.map((s) => s.slm1 || 100)),
-    Math.min(...studentMetrics.map((s) => s.slm2 || 100)),
-    Math.min(...studentMetrics.map((s) => s.slm3 || 100)),
-    Math.min(...studentMetrics.map((s) => s.avgSLM || 100)),
-    Math.min(...studentMetrics.map((s) => s.sasNonTes || 100)),
-    Math.min(...studentMetrics.map((s) => s.sasTes || 100)),
-    Math.min(...studentMetrics.map((s) => s.sas || 100)),
-    Math.min(...studentMetrics.map((s) => s.nilaiAkhir || 100)),
-    "", "", "", "",
+  const summarySpecs: Array<{ label: string; fn: (vals: (number | null)[]) => number | null }> = [
+    { label: "Rata-rata Kelas", fn: safeAvg },
+    { label: "Nilai Tertinggi", fn: safeMax },
+    { label: "Nilai Terendah", fn: safeMin },
   ];
 
-  ws2.addRow(avgRow);
-  ws2.addRow(maxRow);
-  ws2.addRow(minRow);
+  summarySpecs.forEach((spec) => {
+    const rowArr: (string | number | null)[] = [spec.label, "", "", "", "", ""];
+    for (let sIdx = 0; sIdx < numSlotCount; sIdx++) {
+      rowArr.push(spec.fn(colValuesAt(sIdx)));
+    }
+    rowArr.push(null, null, null, null, null);
+    const sr = ws2.addRow(rowArr);
+    sr.height = 20;
+    ws2.mergeCells(sr.number, 1, sr.number, 6);
+    for (let c = 1; c <= totalWs2Cols; c++) {
+      const cell = sr.getCell(c);
+      cell.border = THIN_BORDER;
+      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF8FAFC" } };
+      cell.font = { bold: true, size: 9.5 };
+      cell.alignment = { horizontal: c === 1 ? "right" : "center", vertical: "middle" };
+    }
+  });
 
-  // Styling WS2
   ws2.getRow(1).font = { bold: true, size: 12, color: { argb: "FF1E3A8A" } };
-  ws2.getRow(2).font = { italic: true, size: 9, color: { argb: "FF475569" } };
+  ws2.getRow(2).font = { italic: true, size: 9.5, color: { argb: "FF475569" } };
   [ws2.getRow(7), ws2.getRow(8)].forEach((r) => {
-    r.font = { bold: true, size: 9 };
-    r.alignment = { vertical: "middle", horizontal: "center" };
-    r.eachCell((cell) => {
+    r.height = 21;
+    for (let c = 1; c <= totalWs2Cols; c++) {
+      const cell = r.getCell(c);
+      cell.font = { bold: true, size: 9 };
+      cell.alignment = { vertical: "middle", horizontal: "center", wrapText: true };
       cell.fill = {
         type: "pattern",
         pattern: "solid",
         fgColor: { argb: "FFE2E8F0" },
       };
-      cell.border = {
-        top: { style: "thin", color: { argb: "FFCBD5E1" } },
-        left: { style: "thin", color: { argb: "FFCBD5E1" } },
-        bottom: { style: "thin", color: { argb: "FFCBD5E1" } },
-        right: { style: "thin", color: { argb: "FFCBD5E1" } },
-      };
-    });
+      cell.border = THIN_BORDER;
+    }
   });
 
-  ws2.columns = [
+  const ws2Widths: { width: number }[] = [
     { width: 5 },
-    { width: 14 },
-    { width: 10 },
+    { width: 16 },
+    { width: 11 },
     { width: 14 },
     { width: 28 },
-    { width: 5 },
-    { width: 8 },
-    { width: 8 },
-    { width: 8 },
-    { width: 8 },
-    { width: 12 },
-    { width: 8 },
-    { width: 8 },
-    { width: 8 },
-    { width: 12 },
-    { width: 11 },
-    { width: 9 },
-    { width: 10 },
-    { width: 14 },
-    { width: 9 },
-    { width: 14 },
-    { width: 12 },
-    { width: 12 },
+    { width: 6 },
   ];
+  for (let i = 0; i < numSlotCount; i++) {
+    ws2Widths.push({ width: 11 });
+  }
+  ws2Widths.push(
+    { width: 9 },
+    { width: 15 },
+    { width: 14 },
+    { width: 14 },
+    { width: 46 }
+  );
+  ws2.columns = ws2Widths;
 
-  // ---------------------------------------------------------------------------
-  // TAB 3: Pengaturan_TP_Bobot
-  // ---------------------------------------------------------------------------
+  // ===========================================================================
+  // TAB 3: Pengaturan_TP_Bobot (Kolom D otomatis dari menu Tujuan Pembelajaran)
+  // ===========================================================================
   const ws3 = wb.addWorksheet("Pengaturan_TP_Bobot", {
     views: [{ showGridLines: true }],
   });
 
   ws3.addRow(["PENGATURAN IDENTITAS KELAS, BOBOT PENILAIAN, DAN TUJUAN PEMBELAJARAN (TP)"]);
-  ws3.addRow(["Ubah data pada sel berwarna kuning muda. Perubahan akan otomatis memperbarui perhitungan dan deskripsi di sheet lainnya."]);
+  ws3.addRow([
+    "Daftar Tujuan Pembelajaran (Kolom D s.d. H) ditarik otomatis dari menu Tujuan Pembelajaran sesuai tingkat kelas dan mata pelajaran.",
+  ]);
   ws3.addRow([]);
 
-  ws3.addRow(["A. IDENTITAS SEKOLAH & MATA PELAJARAN", "", "", "B. PENGATURAN BOBOT NILAI AKHIR", "", ""]);
+  ws3.addRow([
+    "A. IDENTITAS SEKOLAH & MATA PELAJARAN",
+    "",
+    "",
+    "B. PENGATURAN BOBOT NILAI AKHIR",
+    "",
+    "",
+  ]);
   ws3.addRow(["Nama Sekolah", namaSekolah, "", "Komponen Penilaian", "Kode", "Bobot (%)"]);
-  ws3.addRow(["NPSN", npsn, "", "Rata-rata Formatif / Tujuan Pembelajaran (TP)", "BOBOT_TP", bobotTP]);
-  ws3.addRow(["Kurikulum", "Kurikulum Merdeka", "", "Rata-rata Sumatif Lingkup Materi (SLM)", "BOBOT_SLM", bobotSLM]);
-  ws3.addRow(["Tahun Pelajaran", tahunPelajaran, "", "Sumatif Akhir Semester (SAS)", "BOBOT_SAS", bobotSAS]);
-  ws3.addRow(["Semester", semesterStr, "", "Total Bobot (Harus 100%)", "", bobotTP + bobotSLM + bobotSAS]);
+  ws3.addRow([
+    "NPSN",
+    npsn,
+    "",
+    "Rata-rata Formatif / Tujuan Pembelajaran (TP)",
+    "BOBOT_TP",
+    bobotHarianPct,
+  ]);
+  ws3.addRow([
+    "Kurikulum",
+    "Kurikulum Merdeka",
+    "",
+    "Rata-rata Sumatif Lingkup Materi (SLM) / STS",
+    "BOBOT_SLM",
+    bobotUtsPct,
+  ]);
+  ws3.addRow([
+    "Tahun Pelajaran",
+    tahunPelajaran,
+    "",
+    "Sumatif Akhir Semester (SAS)",
+    "BOBOT_SAS",
+    bobotUasPct,
+  ]);
+  ws3.addRow([
+    "Semester",
+    semesterStr,
+    "",
+    "Total Bobot (100%)",
+    "",
+    bobotHarianPct + bobotUtsPct + bobotUasPct,
+  ]);
   ws3.addRow(["Kelas / Fase", kelasFase]);
-  ws3.addRow(["Mata Pelajaran", mapelNama, "", "C. DAFTAR TUJUAN PEMBELAJARAN (UNTUK DESKRIPSI CAPAIAN OTOMATIS)"]);
-  ws3.addRow(["Kode Mapel E-Rapor", kodeMapel, "", "Kode TP", "Ringkasan Materi / Tujuan Pembelajaran (Maks. 100 Karakter)", "Template Kalimat Capaian Optimal", "Template Kalimat Perlu Bimbingan"]);
   ws3.addRow([
-    "Nama Guru Pengampu", guruNama, "",
-    "TP 1",
-    "menerapkan berpikir komputasional dalam menyelesaikan persoalan kompleks",
-    "Menunjukkan penguasaan yang sangat baik dalam menerapkan berpikir komputasional dalam menyelesaikan persoalan kompleks.",
-    "Perlu bimbingan dan pendampingan lebih lanjut dalam menerapkan berpikir komputasional dalam menyelesaikan persoalan kompleks.",
+    "Mata Pelajaran",
+    mapelNama,
+    "",
+    "C. DAFTAR TUJUAN PEMBELAJARAN (UNTUK DESKRIPSI CAPAIAN OTOMATIS)",
   ]);
   ws3.addRow([
-    "NIP Guru", guruNip, "",
-    "TP 2",
-    "mengintegrasikan aplikasi perkantoran dan pengolahan data secara efektif",
-    "Menunjukkan penguasaan yang sangat baik dalam mengintegrasikan aplikasi perkantoran dan pengolahan data secara efektif.",
-    "Perlu bimbingan dan pendampingan lebih lanjut dalam mengintegrasikan aplikasi perkantoran dan pengolahan data secara efektif.",
-  ]);
-  ws3.addRow([
-    "Batas Ketuntasan (KKTP)", kktp, "",
-    "TP 3",
-    "memahami arsitektur sistem komputer, perangkat keras, dan sistem operasi",
-    "Menunjukkan penguasaan yang sangat baik dalam memahami arsitektur sistem komputer, perangkat keras, dan sistem operasi.",
-    "Perlu bimbingan dan pendampingan lebih lanjut dalam memahami arsitektur sistem komputer, perangkat keras, dan sistem operasi.",
-  ]);
-  ws3.addRow([
-    "", "", "",
-    "TP 4",
-    "menganalisis konsep jaringan komputer, internet, serta keamanan data digital",
-    "Menunjukkan penguasaan yang sangat baik dalam menganalisis konsep jaringan komputer, internet, serta keamanan data digital.",
-    "Perlu bimbingan dan pendampingan lebih lanjut dalam menganalisis konsep jaringan komputer, internet, serta keamanan data digital.",
+    "Kode Mapel E-Rapor",
+    kodeMapel,
+    "",
+    "Kode TP",
+    "Tujuan Pembelajaran",
+    "Template Kalimat Capaian Optimal",
+    "Template Kalimat Perlu Bimbingan",
+    "Ruang Lingkup Materi",
   ]);
 
-  ws3.getRow(1).font = { bold: true, size: 12, color: { argb: "FF1E3A8A" } };
-  ws3.getRow(4).font = { bold: true, size: 10 };
-  ws3.columns = [
-    { width: 24 },
-    { width: 30 },
-    { width: 4 },
-    { width: 14 },
-    { width: 34 },
-    { width: 38 },
-    { width: 38 },
+  // Sumber daftar TP: prioritas utama dari tabel TujuanPembelajaran; fallback dari kolom HARIAN jika ada
+  const tpRowsForSheet3 =
+    masterTps.length > 0
+      ? masterTps.map((tp) => {
+          const clean = tp.tujuanPembelajaran.trim().replace(/\.+$/, "");
+          return {
+            kodeTp: tp.kodeTp,
+            tujuanPembelajaran: tp.tujuanPembelajaran,
+            optimal: `Menunjukkan penguasaan yang baik dalam ${clean}.`,
+            bimbingan: `Perlu bimbingan lebih lanjut dalam ${clean}.`,
+            lingkup: tp.ruangLingkupMateri || "",
+          };
+        })
+      : harianCols
+          .filter((c) => Boolean(c.nama))
+          .map((c) => {
+            const rawDesc = (c.tujuanPembelajaran || c.nama).trim().replace(/\.+$/, "");
+            return {
+              kodeTp: c.nama,
+              tujuanPembelajaran: c.tujuanPembelajaran || "",
+              optimal: c.tujuanPembelajaran
+                ? `Menunjukkan penguasaan yang baik dalam ${rawDesc}.`
+                : "",
+              bimbingan: c.tujuanPembelajaran
+                ? `Perlu bimbingan lebih lanjut dalam ${rawDesc}.`
+                : "",
+              lingkup: "",
+            };
+          });
+
+  const leftMetaRows: Array<[string, string | number]> = [
+    ["Nama Guru Pengampu", guruNama],
+    ["NIP / NUPTK Guru", guruNip],
+    ["Batas Ketuntasan (KKTP)", kktp],
   ];
 
-  // ---------------------------------------------------------------------------
-  // TAB 4: Statistik_Analisis
-  // ---------------------------------------------------------------------------
+  const maxRowsSectionC = Math.max(leftMetaRows.length, tpRowsForSheet3.length, 1);
+  for (let i = 0; i < maxRowsSectionC; i++) {
+    const left = leftMetaRows[i] ?? ["", ""];
+    const rightTp = tpRowsForSheet3[i];
+    const row = ws3.addRow([
+      left[0],
+      left[1],
+      "",
+      rightTp ? rightTp.kodeTp : null,
+      rightTp ? rightTp.tujuanPembelajaran : null,
+      rightTp ? rightTp.optimal : null,
+      rightTp ? rightTp.bimbingan : null,
+      rightTp ? rightTp.lingkup : null,
+    ]);
+    row.alignment = { vertical: "middle", wrapText: true };
+    if (rightTp) {
+      for (let c = 4; c <= 8; c++) {
+        row.getCell(c).border = THIN_BORDER;
+      }
+    }
+  }
+
+  ws3.getRow(1).font = { bold: true, size: 12, color: { argb: "FF1E3A8A" } };
+  ws3.getRow(2).font = { italic: true, size: 9.5, color: { argb: "FF475569" } };
+  ws3.getRow(4).font = { bold: true, size: 10 };
+  ws3.getRow(11).getCell(4).font = { bold: true, size: 10, color: { argb: "FF1E3A8A" } };
+  const tpHeaderRowWs3 = ws3.getRow(12);
+  for (let c = 4; c <= 8; c++) {
+    const cell = tpHeaderRowWs3.getCell(c);
+    cell.font = { bold: true, size: 9.5 };
+    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFE2E8F0" } };
+    cell.border = THIN_BORDER;
+    cell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
+  }
+
+  ws3.columns = [
+    { width: 24 },
+    { width: 32 },
+    { width: 4 },
+    { width: 14 },
+    { width: 42 },
+    { width: 44 },
+    { width: 44 },
+    { width: 28 },
+  ];
+
+  // ===========================================================================
+  // TAB 4: Statistik_Analisis (100% Data Aktual)
+  // ===========================================================================
   const ws4 = wb.addWorksheet("Statistik_Analisis", {
     views: [{ showGridLines: true }],
   });
 
   const totalSiswa = studentMetrics.length;
-  const tuntasCount = studentMetrics.filter((s) => s.statusKktp === "Tuntas").length;
-  const remidialCount = totalSiswa - tuntasCount;
-  const persentaseKetuntasan = totalSiswa ? Math.round((tuntasCount / totalSiswa) * 100) / 100 : 0;
-  const avgNA = avg(studentMetrics.map((s) => s.nilaiAkhir));
+  const gradedList = studentMetrics.filter((s) => s.nilaiAkhir !== null);
+  const gradedCount = gradedList.length;
+  const ungradedCount = totalSiswa - gradedCount;
+  const tuntasCount = gradedList.filter((s) => (s.nilaiAkhir ?? 0) >= kktp).length;
+  const remidialCount = gradedCount - tuntasCount;
+  const persentaseKetuntasan =
+    gradedCount > 0 ? Math.round((tuntasCount / gradedCount) * 10000) / 100 : null;
 
-  const predA = studentMetrics.filter((s) => s.predikat === "A").length;
-  const predB = studentMetrics.filter((s) => s.predikat === "B").length;
-  const predC = studentMetrics.filter((s) => s.predikat === "C").length;
-  const predD = studentMetrics.filter((s) => s.predikat === "D").length;
+  const avgNA = safeAvg(studentMetrics.map((s) => s.nilaiAkhir));
+  const maxNA = safeMax(studentMetrics.map((s) => s.nilaiAkhir));
+  const minNA = safeMin(studentMetrics.map((s) => s.nilaiAkhir));
+
+  const predA = gradedList.filter((s) => s.predikat === "A").length;
+  const predB = gradedList.filter((s) => s.predikat === "B").length;
+  const predC = gradedList.filter((s) => s.predikat === "C").length;
+  const predD = gradedList.filter((s) => s.predikat === "D").length;
 
   ws4.addRow(["DASHBOARD ANALISIS & STATISTIK NILAI E-RAPOR"]);
-  ws4.addRow(["Ringkasan otomatis ketuntasan belajar, distribusi predikat, dan perbandingan rata-rata komponen asesmen."]);
+  ws4.addRow([
+    "Ringkasan ketuntasan belajar, distribusi predikat, dan rata-rata setiap komponen asesmen berdasarkan data aktual yang sudah diinput.",
+  ]);
   ws4.addRow([]);
 
-  ws4.addRow(["RINGKASAN STATISTIK KELAS", "NILAI", "", "Predikat", "Jumlah Siswa", "Persentase"]);
-  ws4.addRow(["Jumlah Peserta Didik", totalSiswa, "", "Predikat A (Sangat Baik)", predA, totalSiswa ? Math.round((predA / totalSiswa) * 100) / 100 : 0]);
-  ws4.addRow(["Rata-rata Nilai Akhir", avgNA, "", "Predikat B (Baik)", predB, totalSiswa ? Math.round((predB / totalSiswa) * 100) / 100 : 0]);
-  ws4.addRow(["Nilai Akhir Tertinggi", Math.max(...studentMetrics.map((s) => s.nilaiAkhir || 0)), "", "Predikat C (Cukup)", predC, totalSiswa ? Math.round((predC / totalSiswa) * 100) / 100 : 0]);
-  ws4.addRow(["Nilai Akhir Terendah", Math.min(...studentMetrics.map((s) => s.nilaiAkhir || 100)), "", "Predikat D (Perlu Bimbingan)", predD, totalSiswa ? Math.round((predD / totalSiswa) * 100) / 100 : 0]);
-  ws4.addRow(["Jumlah Siswa Tuntas KKTP", tuntasCount, "", "Total", totalSiswa, 1.0]);
-  ws4.addRow(["Jumlah Siswa Perlu Remidial", remidialCount]);
-  ws4.addRow(["Persentase Ketuntasan Kelas", persentaseKetuntasan]);
+  ws4.addRow(["RINGKASAN STATISTIK KELAS", "NILAI", "", "Distribusi Predikat", "Jumlah Siswa", "Persentase (%)"]);
+  ws4.addRow([
+    "Jumlah Peserta Didik Rombel",
+    totalSiswa,
+    "",
+    "Predikat A (90 - 100)",
+    predA,
+    gradedCount > 0 ? Math.round((predA / gradedCount) * 10000) / 100 : null,
+  ]);
+  ws4.addRow([
+    "Jumlah Siswa Sudah Dinilai",
+    gradedCount,
+    "",
+    "Predikat B (80 - 89)",
+    predB,
+    gradedCount > 0 ? Math.round((predB / gradedCount) * 10000) / 100 : null,
+  ]);
+  ws4.addRow([
+    "Jumlah Siswa Belum Dinilai",
+    ungradedCount,
+    "",
+    `Predikat C (${kktp} - 79)`,
+    predC,
+    gradedCount > 0 ? Math.round((predC / gradedCount) * 10000) / 100 : null,
+  ]);
+  ws4.addRow([
+    "Rata-rata Nilai Akhir",
+    avgNA,
+    "",
+    `Predikat D (< ${kktp})`,
+    predD,
+    gradedCount > 0 ? Math.round((predD / gradedCount) * 10000) / 100 : null,
+  ]);
+  ws4.addRow([
+    "Nilai Akhir Tertinggi",
+    maxNA,
+    "",
+    "Total Siswa Dinilai",
+    gradedCount,
+    gradedCount > 0 ? 100 : null,
+  ]);
+  ws4.addRow(["Nilai Akhir Terendah", minNA]);
+  ws4.addRow(["Jumlah Siswa Tuntas KKTP", gradedCount > 0 ? tuntasCount : null]);
+  ws4.addRow(["Jumlah Siswa Perlu Bimbingan", gradedCount > 0 ? remidialCount : null]);
+  ws4.addRow([
+    "Persentase Ketuntasan (%)",
+    persentaseKetuntasan !== null ? `${persentaseKetuntasan}%` : null,
+  ]);
   ws4.addRow([]);
 
-  ws4.addRow(["Komponen Penilaian", "Rata-rata Kelas"]);
-  ws4.addRow(["TP 1", avg(studentMetrics.map((s) => s.tp1))]);
-  ws4.addRow(["TP 2", avg(studentMetrics.map((s) => s.tp2))]);
-  ws4.addRow(["TP 3", avg(studentMetrics.map((s) => s.tp3))]);
-  ws4.addRow(["TP 4", avg(studentMetrics.map((s) => s.tp4))]);
-  ws4.addRow(["SLM 1", avg(studentMetrics.map((s) => s.slm1))]);
-  ws4.addRow(["SLM 2", avg(studentMetrics.map((s) => s.slm2))]);
-  ws4.addRow(["SLM 3", avg(studentMetrics.map((s) => s.slm3))]);
-  ws4.addRow(["Nilai SAS", avg(studentMetrics.map((s) => s.sas))]);
+  ws4.addRow(["Komponen Penilaian Terdaftar", "Kategori", "Rata-rata Kelas"]);
+  p.penilaian.forEach((pen) => {
+    const vals = p.rombel.anggota.map((ang) => rawScoreMap.get(`${pen.id}_${ang.siswaId}`) ?? null);
+    ws4.addRow([pen.nama, pen.kategori, safeAvg(vals)]);
+  });
 
   ws4.getRow(1).font = { bold: true, size: 12, color: { argb: "FF1E3A8A" } };
+  ws4.getRow(2).font = { italic: true, size: 9.5, color: { argb: "FF475569" } };
   ws4.getRow(4).font = { bold: true, size: 10 };
+  ws4.getRow(15).font = { bold: true, size: 10 };
   ws4.columns = [
+    { width: 30 },
+    { width: 16 },
+    { width: 16 },
     { width: 28 },
-    { width: 14 },
-    { width: 4 },
-    { width: 26 },
-    { width: 14 },
-    { width: 14 },
+    { width: 16 },
+    { width: 16 },
   ];
 
-  const fileName = `E-Rapor_${p.mapel.nama.replace(/\s+/g, "_")}_${p.rombel.nama.replace(/\s+/g, "_")}.xlsx`;
+  const safeMapel = p.mapel.nama.replace(/[^a-zA-Z0-9_-]/g, "_");
+  const safeRombel = p.rombel.nama.replace(/[^a-zA-Z0-9_-]/g, "_");
+  const fileName = `E-Rapor_${safeMapel}_Kelas_${safeRombel}.xlsx`;
   return { buffer: await wb.xlsx.writeBuffer(), fileName };
 }

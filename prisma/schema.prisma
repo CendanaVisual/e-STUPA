@@ -56,10 +56,11 @@ enum StatusSiswa {
   KELUAR
 }
 
-/// Kategori kolom penilaian (Harian = formatif/sumatif lingkup materi,
+/// Kategori kolom penilaian (HARIAN = Formatif / TP, SLM = Sumatif Lingkup Materi,
 /// UTS = Sumatif Tengah Semester, UAS = Sumatif Akhir Semester)
 enum KategoriPenilaian {
   HARIAN
+  SLM
   UTS
   UAS
 }
@@ -435,6 +436,7 @@ model NilaiRapor {
   siswa          Siswa        @relation(fields: [siswaId], references: [id], onDelete: Cascade)
 
   rataHarian  Decimal? @db.Decimal(5, 2)
+  rataSlm     Decimal? @db.Decimal(5, 2)
   nilaiUts    Decimal? @db.Decimal(5, 2)
   nilaiUas    Decimal? @db.Decimal(5, 2)
   /// Nilai akhir hasil kalkulasi bobot (bisa di-override guru)
