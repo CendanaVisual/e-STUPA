@@ -12,8 +12,10 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   transferNilaiKonversiAction,
+  tarikNilaiAkhirPembelajaranAction,
   type TransferNilaiTargetType,
 } from "@/server/actions/penilaian";
+import { hitungNilaiAkhirLengkap } from "@/lib/grading/calc";
 
 export interface SiswaKonversiItem {
   siswaId: string;
@@ -39,6 +41,12 @@ export interface MapelKonversiOption {
   mapelId: string;
   mapelKode: string;
   mapelNama: string;
+  kktp: number;
+  bobotHarian: number;
+  bobotUts: number;
+  bobotUas: number;
+  penilaianCols: { id: string; kategori: string }[];
+  nilaiAkhirMap: Record<string, number>;
   tpOptions: TpKonversiOption[];
   slmOptions: SlmKonversiOption[];
   stsOption: { penilaianId: string | null; nama: string };
@@ -57,6 +65,7 @@ export interface RombelKonversiOption {
 
 interface StoredKonversiDraft {
   rombelId: string;
+  pembelajaranId?: string;
   updatedAt: string;
   nilaiTertinggiDiinginkan: string;
   nilaiTerendahDiinginkan: string;
@@ -65,18 +74,59 @@ interface StoredKonversiDraft {
   nilaiKonversiMap: Record<string, number | null>; // key: siswaId -> hasil konversi
 }
 
+interface StoredActiveSelection {
+  rombelId: string;
+  pembelajaranId: string;
+}
+
 interface KonversiNilaiClientProps {
   rombelOptions: RombelKonversiOption[];
   initialRombelId: string;
+  initialPembelajaranId?: string;
   semesterLabel: string;
   semesterStatus: string;
   guruNama: string;
   peranLabel: string;
 }
 
+const SELECTION_STORAGE_KEY = "stupa_konversi_active_selection_v2";
+
+function buildDraftKey(rombelId: string, pembelajaranId: string): string {
+  if (pembelajaranId) {
+    return `stupa_konversi_nilai_draft_v2_${rombelId}_${pembelajaranId}`;
+  }
+  return `stupa_konversi_nilai_draft_v1_${rombelId}`;
+}
+
+function readDraftFromLocalStorage(
+  rombelId: string,
+  pembelajaranId: string
+): StoredKonversiDraft | null {
+  if (typeof window === "undefined" || !rombelId) return null;
+  try {
+    const primaryKey = buildDraftKey(rombelId, pembelajaranId);
+    const rawPrimary = window.localStorage.getItem(primaryKey);
+    if (rawPrimary) {
+      const parsed = JSON.parse(rawPrimary) as StoredKonversiDraft;
+      if (parsed && typeof parsed === "object") return parsed;
+    }
+    // Fallback ke draft v1 berbasis rombelId jika ada
+    const legacyKey = `stupa_konversi_nilai_draft_v1_${rombelId}`;
+    const rawLegacy = window.localStorage.getItem(legacyKey);
+    if (rawLegacy) {
+      const parsedLegacy = JSON.parse(rawLegacy) as StoredKonversiDraft;
+      if (parsedLegacy && typeof parsedLegacy === "object") return parsedLegacy;
+    }
+  } catch {
+    // Abaikan jika JSON rusak
+  }
+  return null;
+}
+
 export default function KonversiNilaiClient({
   rombelOptions,
   initialRombelId,
+  initialPembelajaranId = "",
   semesterLabel,
   semesterStatus,
   guruNama,
@@ -84,52 +134,122 @@ export default function KonversiNilaiClient({
 }: KonversiNilaiClientProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
+  const [isPulling, startPullTransition] = useTransition();
 
-  const defaultRombelId = useMemo(() => {
-    if (initialRombelId && rombelOptions.some((r) => r.id === initialRombelId)) {
-      return initialRombelId;
+  // Tentukan Rombel & Mapel awal (prioritas URL -> localStorage -> opsi pertama)
+  const initialSelection = useMemo((): StoredActiveSelection => {
+    let rId =
+      initialRombelId && rombelOptions.some((r) => r.id === initialRombelId)
+        ? initialRombelId
+        : "";
+    let pId = initialPembelajaranId || "";
+
+    if (typeof window !== "undefined" && !rId) {
+      try {
+        const rawSel = window.localStorage.getItem(SELECTION_STORAGE_KEY);
+        if (rawSel) {
+          const parsedSel = JSON.parse(rawSel) as StoredActiveSelection;
+          if (parsedSel?.rombelId && rombelOptions.some((r) => r.id === parsedSel.rombelId)) {
+            rId = parsedSel.rombelId;
+            pId = parsedSel.pembelajaranId || "";
+          }
+        }
+      } catch {
+        // Ignore
+      }
     }
-    return rombelOptions[0]?.id || "";
-  }, [initialRombelId, rombelOptions]);
 
-  const [selectedRombelId, setSelectedRombelId] = useState<string>(defaultRombelId);
+    if (!rId) {
+      rId = rombelOptions[0]?.id || "";
+    }
+
+    const rObj = rombelOptions.find((r) => r.id === rId) ?? rombelOptions[0];
+    if (rObj) {
+      if (!pId || !rObj.mapelList.some((m) => m.pembelajaranId === pId)) {
+        pId = rObj.mapelList[0]?.pembelajaranId || "";
+      }
+    }
+
+    return { rombelId: rId, pembelajaranId: pId };
+  }, [initialRombelId, initialPembelajaranId, rombelOptions]);
+
+  const [selectedRombelId, setSelectedRombelId] = useState<string>(initialSelection.rombelId);
+  const [selectedPembelajaranId, setSelectedPembelajaranId] = useState<string>(
+    initialSelection.pembelajaranId
+  );
 
   const activeRombel = useMemo(
     () => rombelOptions.find((r) => r.id === selectedRombelId) ?? rombelOptions[0] ?? null,
     [rombelOptions, selectedRombelId]
   );
 
-  // State 4 Kolom di atas tabel & Nilai Dasar per siswa
-  const [nilaiTertinggiDiinginkan, setNilaiTertinggiDiinginkan] = useState<string>("");
-  const [nilaiTerendahDiinginkan, setNilaiTerendahDiinginkan] = useState<string>("");
-  const [nilaiDasarMap, setNilaiDasarMap] = useState<Record<string, string>>({});
-  const [roundingMode, setRoundingMode] = useState<"DECIMAL_2" | "INTEGER">("DECIMAL_2");
+  const activeMapelOption = useMemo(() => {
+    if (!activeRombel) return null;
+    return (
+      activeRombel.mapelList.find((m) => m.pembelajaranId === selectedPembelajaranId) ??
+      activeRombel.mapelList[0] ??
+      null
+    );
+  }, [activeRombel, selectedPembelajaranId]);
+
+  const activeRombelId = activeRombel?.id || "";
+  const activePembelajaranId = activeMapelOption?.pembelajaranId || "";
+
+  // State 4 Kolom di atas tabel & Nilai Dasar per siswa (terhidrasi langsung dari localStorage)
+  const [nilaiTertinggiDiinginkan, setNilaiTertinggiDiinginkan] = useState<string>(() => {
+    const d = readDraftFromLocalStorage(
+      initialSelection.rombelId,
+      initialSelection.pembelajaranId
+    );
+    return d?.nilaiTertinggiDiinginkan ?? "";
+  });
+  const [nilaiTerendahDiinginkan, setNilaiTerendahDiinginkan] = useState<string>(() => {
+    const d = readDraftFromLocalStorage(
+      initialSelection.rombelId,
+      initialSelection.pembelajaranId
+    );
+    return d?.nilaiTerendahDiinginkan ?? "";
+  });
+  const [nilaiDasarMap, setNilaiDasarMap] = useState<Record<string, string>>(() => {
+    const d = readDraftFromLocalStorage(
+      initialSelection.rombelId,
+      initialSelection.pembelajaranId
+    );
+    return d?.nilaiDasarMap || {};
+  });
+  const [roundingMode, setRoundingMode] = useState<"DECIMAL_2" | "INTEGER">(() => {
+    const d = readDraftFromLocalStorage(
+      initialSelection.rombelId,
+      initialSelection.pembelajaranId
+    );
+    return d?.roundingMode === "DECIMAL_2" ? "DECIMAL_2" : "INTEGER";
+  });
+
+  // Cache lokal Nilai Akhir per pembelajaran (agar jika baru ditransfer langsung terbarui)
+  const [localNilaiAkhirOverride, setLocalNilaiAkhirOverride] = useState<
+    Record<string, Record<string, number>>
+  >({});
 
   // Status penyimpanan sementara (Draft Offline / Auto-Save)
   const [isOnline, setIsOnline] = useState<boolean>(true);
   const [draftSavedAt, setDraftSavedAt] = useState<string | null>(null);
   const [restoredFromDraft, setRestoredFromDraft] = useState<boolean>(false);
-  const isHydratingDraftRef = useRef<boolean>(false);
+  const isHydratedRef = useRef<boolean>(false);
 
   // Notifikasi & Modal Transfer Nilai
   const [feedback, setFeedback] = useState<{
     type: "success" | "error" | "info";
     message: string;
     linkPembelajaranId?: string;
+    linkRombelId?: string;
   } | null>(null);
 
   const [showTransferModal, setShowTransferModal] = useState<boolean>(false);
-  const [selectedPembelajaranId, setSelectedPembelajaranId] = useState<string>("");
   const [selectedTargetType, setSelectedTargetType] = useState<TransferNilaiTargetType>("TP");
   const [selectedTpKode, setSelectedTpKode] = useState<string>("");
   const [selectedSlmKey, setSelectedSlmKey] = useState<string>("");
 
   const inputRefs = useRef<Record<number, HTMLInputElement | null>>({});
-
-  const draftStorageKey = useCallback(
-    (rombelId: string) => `stupa_konversi_nilai_draft_v1_${rombelId}`,
-    []
-  );
 
   // ===========================================================================
   // 1. PERHITUNGAN REALTIME:
@@ -215,8 +335,6 @@ export default function KonversiNilaiClient({
       // = Nilai Terendah Diinginkan + ((Kolom Nilai Dasar - Nilai Terendah) / (Nilai Tertinggi - Nilai Terendah) * (Nilai Tertinggi Diinginkan - Nilai Terendah Diinginkan))
       let rawConverted: number;
       if (selisihDasar === 0) {
-        // Apabila baru 1 siswa diisi atau seluruh siswa bernilai dasar sama (0 / 0),
-        // cegah pembagian nol (NaN) dengan mengembalikan Nilai Terendah Diinginkan
         rawConverted = parsedTargetMin;
       } else {
         rawConverted =
@@ -242,32 +360,39 @@ export default function KonversiNilaiClient({
   ]);
 
   // ===========================================================================
-  // 2. PENYIMPANAN SEMENTARA OTOMATIS (OFFLINE / SINYAL HILANG / KENDALA WEB)
+  // 2. PENYIMPANAN SEMENTARA OTOMATIS SINKRON (ANTI HILANG SAAT REFRESH / OFFLINE)
   // ===========================================================================
-  const saveDraftToStorage = useCallback(
+  const writeDraftNow = useCallback(
     (
-      rombelId: string,
+      rId: string,
+      pId: string,
       dasarMap: Record<string, string>,
       konversiMap: Record<string, number | null>,
       tMax: string,
       tMin: string,
       rMode: "DECIMAL_2" | "INTEGER"
     ) => {
-      if (!rombelId || typeof window === "undefined") return;
+      if (!rId || typeof window === "undefined") return;
       try {
+        window.localStorage.setItem(
+          SELECTION_STORAGE_KEY,
+          JSON.stringify({ rombelId: rId, pembelajaranId: pId })
+        );
+
         const hasAnyInput =
-          Object.values(dasarMap).some((v) => v.trim() !== "") ||
+          Object.values(dasarMap).some((v) => String(v).trim() !== "") ||
           tMax.trim() !== "" ||
           tMin.trim() !== "";
-        const key = draftStorageKey(rombelId);
+
+        const key = buildDraftKey(rId, pId);
         if (!hasAnyInput) {
-          window.localStorage.removeItem(key);
-          setDraftSavedAt(null);
           return;
         }
+
         const nowIso = new Date().toISOString();
         const payload: StoredKonversiDraft = {
-          rombelId,
+          rombelId: rId,
+          pembelajaranId: pId,
           updatedAt: nowIso,
           nilaiTertinggiDiinginkan: tMax,
           nilaiTerendahDiinginkan: tMin,
@@ -287,62 +412,64 @@ export default function KonversiNilaiClient({
         // Ignore storage quota errors
       }
     },
-    [draftStorageKey]
+    []
   );
 
-  // Pulihkan draft saat rombel dipilih / halaman dimuat ulang
+  // Pulihkan draft setiap kali pasangan (activeRombelId, activePembelajaranId) berubah atau saat halaman di-refresh
   useEffect(() => {
-    if (!activeRombel || typeof window === "undefined") return;
-    isHydratingDraftRef.current = true;
+    if (!activeRombelId || typeof window === "undefined") return;
+    isHydratedRef.current = false;
+
     try {
-      const raw = window.localStorage.getItem(draftStorageKey(activeRombel.id));
-      if (raw) {
-        const parsed = JSON.parse(raw) as StoredKonversiDraft;
-        if (parsed && typeof parsed === "object") {
-          setNilaiTertinggiDiinginkan(parsed.nilaiTertinggiDiinginkan ?? "");
-          setNilaiTerendahDiinginkan(parsed.nilaiTerendahDiinginkan ?? "");
-          setRoundingMode(parsed.roundingMode === "INTEGER" ? "INTEGER" : "DECIMAL_2");
-          setNilaiDasarMap(parsed.nilaiDasarMap || {});
-          const hasFilled =
-            Object.values(parsed.nilaiDasarMap || {}).some(
-              (v) => String(v).trim() !== ""
-            ) ||
-            Boolean(parsed.nilaiTertinggiDiinginkan?.trim()) ||
-            Boolean(parsed.nilaiTerendahDiinginkan?.trim());
-          setRestoredFromDraft(hasFilled);
-          if (parsed.updatedAt) {
-            setDraftSavedAt(
-              new Date(parsed.updatedAt).toLocaleTimeString("id-ID", {
-                hour: "2-digit",
-                minute: "2-digit",
-                second: "2-digit",
-              })
-            );
-          }
-          setTimeout(() => {
-            isHydratingDraftRef.current = false;
-          }, 0);
-          return;
+      window.localStorage.setItem(
+        SELECTION_STORAGE_KEY,
+        JSON.stringify({
+          rombelId: activeRombelId,
+          pembelajaranId: activePembelajaranId,
+        })
+      );
+
+      const saved = readDraftFromLocalStorage(activeRombelId, activePembelajaranId);
+      if (saved) {
+        setNilaiTertinggiDiinginkan(saved.nilaiTertinggiDiinginkan ?? "");
+        setNilaiTerendahDiinginkan(saved.nilaiTerendahDiinginkan ?? "");
+        setRoundingMode(saved.roundingMode === "DECIMAL_2" ? "DECIMAL_2" : "INTEGER");
+        setNilaiDasarMap(saved.nilaiDasarMap || {});
+        const hasFilled =
+          Object.values(saved.nilaiDasarMap || {}).some((v) => String(v).trim() !== "") ||
+          Boolean(saved.nilaiTertinggiDiinginkan?.trim()) ||
+          Boolean(saved.nilaiTerendahDiinginkan?.trim());
+        setRestoredFromDraft(hasFilled);
+        if (saved.updatedAt) {
+          setDraftSavedAt(
+            new Date(saved.updatedAt).toLocaleTimeString("id-ID", {
+              hour: "2-digit",
+              minute: "2-digit",
+              second: "2-digit",
+            })
+          );
         }
+        isHydratedRef.current = true;
+        return;
       }
     } catch {
       // Abaikan jika JSON rusak
     }
+
     setNilaiTertinggiDiinginkan("");
     setNilaiTerendahDiinginkan("");
     setNilaiDasarMap({});
     setRestoredFromDraft(false);
     setDraftSavedAt(null);
-    setTimeout(() => {
-      isHydratingDraftRef.current = false;
-    }, 0);
-  }, [activeRombel, draftStorageKey]);
+    isHydratedRef.current = true;
+  }, [activeRombelId, activePembelajaranId]);
 
   // Simpan otomatis setiap kali Nilai Dasar, Nilai Konversi, atau Nilai Diinginkan berubah
   useEffect(() => {
-    if (!activeRombel || isHydratingDraftRef.current) return;
-    saveDraftToStorage(
-      activeRombel.id,
+    if (!activeRombelId || !isHydratedRef.current) return;
+    writeDraftNow(
+      activeRombelId,
+      activePembelajaranId,
       nilaiDasarMap,
       nilaiKonversiMap,
       nilaiTertinggiDiinginkan,
@@ -350,26 +477,26 @@ export default function KonversiNilaiClient({
       roundingMode
     );
   }, [
-    activeRombel,
+    activeRombelId,
+    activePembelajaranId,
     nilaiDasarMap,
     nilaiKonversiMap,
     nilaiTertinggiDiinginkan,
     nilaiTerendahDiinginkan,
     roundingMode,
-    saveDraftToStorage,
+    writeDraftNow,
   ]);
 
-  // Pantau status koneksi internet & paksa simpan saat tab ditutup / sinyal terputus
+  // Pantau status koneksi internet & paksa simpan saat halaman di-refresh / ditutup
   useEffect(() => {
     if (typeof window === "undefined") return;
     setIsOnline(window.navigator.onLine);
 
-    const handleOnline = () => setIsOnline(true);
-    const handleOffline = () => {
-      setIsOnline(false);
-      if (activeRombel) {
-        saveDraftToStorage(
-          activeRombel.id,
+    const flushCurrent = () => {
+      if (activeRombelId && isHydratedRef.current) {
+        writeDraftNow(
+          activeRombelId,
+          activePembelajaranId,
           nilaiDasarMap,
           nilaiKonversiMap,
           nilaiTertinggiDiinginkan,
@@ -378,66 +505,44 @@ export default function KonversiNilaiClient({
         );
       }
     };
-    const handleBeforeUnload = () => {
-      if (activeRombel) {
-        saveDraftToStorage(
-          activeRombel.id,
-          nilaiDasarMap,
-          nilaiKonversiMap,
-          nilaiTertinggiDiinginkan,
-          nilaiTerendahDiinginkan,
-          roundingMode
-        );
+
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => {
+      setIsOnline(false);
+      flushCurrent();
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        flushCurrent();
       }
     };
 
     window.addEventListener("online", handleOnline);
     window.addEventListener("offline", handleOffline);
-    window.addEventListener("beforeunload", handleBeforeUnload);
-    window.addEventListener("pagehide", handleBeforeUnload);
+    window.addEventListener("beforeunload", flushCurrent);
+    window.addEventListener("pagehide", flushCurrent);
+    document.addEventListener("visibilitychange", flushCurrent);
     return () => {
       window.removeEventListener("online", handleOnline);
       window.removeEventListener("offline", handleOffline);
-      window.removeEventListener("beforeunload", handleBeforeUnload);
-      window.removeEventListener("pagehide", handleBeforeUnload);
+      window.removeEventListener("beforeunload", flushCurrent);
+      window.removeEventListener("pagehide", flushCurrent);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, [
-    activeRombel,
+    activeRombelId,
+    activePembelajaranId,
     nilaiDasarMap,
     nilaiKonversiMap,
     nilaiTertinggiDiinginkan,
     nilaiTerendahDiinginkan,
     roundingMode,
-    saveDraftToStorage,
+    writeDraftNow,
   ]);
 
-  // Sinkronisasi pilihan Mapel & TP/SLM default saat rombel atau mapel berubah
-  useEffect(() => {
-    if (!activeRombel) return;
-    const firstMapel = activeRombel.mapelList[0];
-    if (firstMapel) {
-      setSelectedPembelajaranId((prev) =>
-        activeRombel.mapelList.some((m) => m.pembelajaranId === prev)
-          ? prev
-          : firstMapel.pembelajaranId
-      );
-    } else {
-      setSelectedPembelajaranId("");
-    }
-  }, [activeRombel]);
-
-  const activeMapelOption = useMemo(() => {
-    if (!activeRombel) return null;
-    return (
-      activeRombel.mapelList.find((m) => m.pembelajaranId === selectedPembelajaranId) ??
-      activeRombel.mapelList[0] ??
-      null
-    );
-  }, [activeRombel, selectedPembelajaranId]);
-
+  // Sinkronisasi pilihan TP & SLM default saat mata pelajaran yang dipilih berubah
   useEffect(() => {
     if (!activeMapelOption) return;
-    // Set default Kode TP pertama
     if (activeMapelOption.tpOptions.length > 0) {
       setSelectedTpKode((prev) =>
         activeMapelOption.tpOptions.some((t) => t.kodeTp === prev)
@@ -448,7 +553,6 @@ export default function KonversiNilaiClient({
       setSelectedTpKode("TP 1");
     }
 
-    // Set default SLM pertama
     if (activeMapelOption.slmOptions.length > 0) {
       setSelectedSlmKey((prev) =>
         activeMapelOption.slmOptions.some((s) => s.nama === prev)
@@ -460,12 +564,66 @@ export default function KonversiNilaiClient({
     }
   }, [activeMapelOption]);
 
-  // Handler perubahan Nilai Dasar per siswa
+  // Handler pergantian Kelas yang Diampu
+  const handleSelectRombel = (newRombelId: string) => {
+    setSelectedRombelId(newRombelId);
+    const targetR = rombelOptions.find((r) => r.id === newRombelId);
+    const nextPId = targetR?.mapelList[0]?.pembelajaranId || "";
+    setSelectedPembelajaranId(nextPId);
+    setFeedback(null);
+  };
+
+  // Handler pergantian Mata Pelajaran (Kode Mapel yang Diampu)
+  const handleSelectMapel = (newPembelajaranId: string) => {
+    setSelectedPembelajaranId(newPembelajaranId);
+    setFeedback(null);
+  };
+
+  // Handler perubahan Nilai Dasar per siswa (simpan sinkron ke localStorage)
   const handleNilaiDasarChange = (siswaId: string, val: string) => {
-    setNilaiDasarMap((prev) => ({
-      ...prev,
-      [siswaId]: val,
-    }));
+    setNilaiDasarMap((prev) => {
+      const next = {
+        ...prev,
+        [siswaId]: val,
+      };
+      writeDraftNow(
+        activeRombelId,
+        activePembelajaranId,
+        next,
+        nilaiKonversiMap,
+        nilaiTertinggiDiinginkan,
+        nilaiTerendahDiinginkan,
+        roundingMode
+      );
+      return next;
+    });
+  };
+
+  // Handler perubahan Nilai Tertinggi & Terendah Diinginkan (simpan sinkron ke localStorage)
+  const handleTargetMaxChange = (val: string) => {
+    setNilaiTertinggiDiinginkan(val);
+    writeDraftNow(
+      activeRombelId,
+      activePembelajaranId,
+      nilaiDasarMap,
+      nilaiKonversiMap,
+      val,
+      nilaiTerendahDiinginkan,
+      roundingMode
+    );
+  };
+
+  const handleTargetMinChange = (val: string) => {
+    setNilaiTerendahDiinginkan(val);
+    writeDraftNow(
+      activeRombelId,
+      activePembelajaranId,
+      nilaiDasarMap,
+      nilaiKonversiMap,
+      nilaiTertinggiDiinginkan,
+      val,
+      roundingMode
+    );
   };
 
   // Fitur Paste langsung dari kolom Excel ke kolom Nilai Dasar
@@ -494,8 +652,168 @@ export default function KonversiNilaiClient({
           next[targetSiswa.siswaId] = firstCell;
         }
       });
+      writeDraftNow(
+        activeRombelId,
+        activePembelajaranId,
+        next,
+        nilaiKonversiMap,
+        nilaiTertinggiDiinginkan,
+        nilaiTerendahDiinginkan,
+        roundingMode
+      );
       return next;
     });
+  };
+
+  // ===========================================================================
+  // 3. FITUR TOMBOL ACTION "TARIK NILAI AKHIR":
+  //    Menarik data Nilai Akhir di Kelas yang Diampu & Mapel yang Diampu,
+  //    meletakkannya langsung di Kolom Nilai (Nilai Dasar), dan langsung
+  //    mengonversi nilainya secara realtime!
+  // ===========================================================================
+  const handleTarikNilaiAkhir = () => {
+    if (!activeRombel || !activeMapelOption) {
+      setFeedback({
+        type: "error",
+        message: "Pilih Kelas dan Mata Pelajaran yang diampu terlebih dahulu.",
+      });
+      return;
+    }
+
+    setFeedback(null);
+
+    // 1. Kumpulkan Nilai Akhir dari data server + cache lokal + draft belum disimpan di lembar penilaian
+    const mergedScores: Record<string, number> = {
+      ...activeMapelOption.nilaiAkhirMap,
+      ...(localNilaiAkhirOverride[activeMapelOption.pembelajaranId] || {}),
+    };
+
+    // Periksa juga apabila ada draft lokal di Kelas & Input Nilai (stupa_nilai_draft_v1_${pembelajaranId})
+    if (typeof window !== "undefined" && activeMapelOption.penilaianCols.length > 0) {
+      try {
+        const rawNilaiDraft = window.localStorage.getItem(
+          `stupa_nilai_draft_v1_${activeMapelOption.pembelajaranId}`
+        );
+        if (rawNilaiDraft) {
+          const parsedDraft = JSON.parse(rawNilaiDraft) as {
+            values?: Record<string, string>;
+          };
+          if (parsedDraft?.values && typeof parsedDraft.values === "object") {
+            for (const s of activeRombel.siswaList) {
+              const harianVals: (number | null)[] = [];
+              const slmVals: (number | null)[] = [];
+              const utsVals: (number | null)[] = [];
+              const uasVals: (number | null)[] = [];
+              let hasDraftCell = false;
+
+              for (const col of activeMapelOption.penilaianCols) {
+                const cellKey = `${col.id}_${s.siswaId}`;
+                const rawCell = parsedDraft.values[cellKey]?.trim() ?? "";
+                if (rawCell === "") continue;
+                const num = parseFloat(rawCell);
+                if (Number.isNaN(num) || num < 0 || num > 100) continue;
+                hasDraftCell = true;
+                if (col.kategori === "HARIAN") harianVals.push(num);
+                else if (col.kategori === "SLM") slmVals.push(num);
+                else if (col.kategori === "UTS") utsVals.push(num);
+                else if (col.kategori === "UAS") uasVals.push(num);
+              }
+
+              if (hasDraftCell) {
+                const calc = hitungNilaiAkhirLengkap(
+                  { harian: harianVals, slm: slmVals, uts: utsVals, uas: uasVals },
+                  {
+                    bobotHarian: activeMapelOption.bobotHarian,
+                    bobotUts: activeMapelOption.bobotUts,
+                    bobotUas: activeMapelOption.bobotUas,
+                  }
+                );
+                if (calc.nilaiAkhir !== null) {
+                  mergedScores[s.siswaId] = Math.round(calc.nilaiAkhir);
+                }
+              }
+            }
+          }
+        }
+      } catch {
+        // Ignore
+      }
+    }
+
+    const applyPulledScores = (scoresToApply: Record<string, number>, msg?: string) => {
+      const nextDasarMap: Record<string, string> = {};
+      let count = 0;
+      for (const s of activeRombel.siswaList) {
+        const val = scoresToApply[s.siswaId];
+        if (val !== undefined && val !== null && !Number.isNaN(val)) {
+          nextDasarMap[s.siswaId] = String(Math.round(val));
+          count++;
+        }
+      }
+
+      if (count === 0) {
+        setFeedback({
+          type: "error",
+          message:
+            msg ||
+            `Belum ada data Nilai Akhir pada mata pelajaran ${activeMapelOption.mapelKode} (${activeMapelOption.mapelNama}) di Kelas ${activeRombel.nama}.`,
+        });
+        return;
+      }
+
+      // Pastikan Nilai Tertinggi Diinginkan & Nilai Terendah Diinginkan terisi agar langsung terkonversi realtime
+      const nextTargetMin =
+        nilaiTerendahDiinginkan.trim() !== ""
+          ? nilaiTerendahDiinginkan
+          : String(activeMapelOption.kktp || 75);
+      const nextTargetMax =
+        nilaiTertinggiDiinginkan.trim() !== "" ? nilaiTertinggiDiinginkan : "95";
+
+      setNilaiTerendahDiinginkan(nextTargetMin);
+      setNilaiTertinggiDiinginkan(nextTargetMax);
+      setNilaiDasarMap(nextDasarMap);
+
+      writeDraftNow(
+        activeRombel.id,
+        activeMapelOption.pembelajaranId,
+        nextDasarMap,
+        nilaiKonversiMap,
+        nextTargetMax,
+        nextTargetMin,
+        roundingMode
+      );
+
+      setFeedback({
+        type: "success",
+        message:
+          msg ||
+          `Berhasil menarik ${count} Nilai Akhir mata pelajaran ${activeMapelOption.mapelKode} (${activeMapelOption.mapelNama}) — Kelas ${activeRombel.nama} ke Kolom Nilai Dasar dan langsung dikonversi!`,
+      });
+    };
+
+    // Terapkan langsung data lokal yang tersedia agar respons instan
+    if (Object.keys(mergedScores).length > 0) {
+      applyPulledScores(mergedScores);
+    }
+
+    // Jika online, sinkronkan juga data terbaru dari database server
+    if (isOnline) {
+      startPullTransition(async () => {
+        try {
+          const res = await tarikNilaiAkhirPembelajaranAction(
+            activeMapelOption.pembelajaranId
+          );
+          if (res.success && res.scores) {
+            const combined = { ...mergedScores, ...res.scores };
+            applyPulledScores(combined, res.message);
+          } else if (Object.keys(mergedScores).length === 0) {
+            setFeedback({ type: "error", message: res.message });
+          }
+        } catch {
+          // Jika gagal jaringan tetapi mergedScores sudah ada, tetap gunakan mergedScores
+        }
+      });
+    }
   };
 
   // Navigasi tombol Enter / Panah Atas / Panah Bawah antar baris siswa
@@ -525,7 +843,11 @@ export default function KonversiNilaiClient({
     if (!activeRombel) return;
     if (
       !window.confirm(
-        `Kosongkan seluruh input Nilai Dasar pada Kelas ${activeRombel.nama}?`
+        `Kosongkan seluruh input Nilai Dasar untuk ${
+          activeMapelOption
+            ? `${activeMapelOption.mapelKode} (${activeMapelOption.mapelNama}) — `
+            : ""
+        }Kelas ${activeRombel.nama}?`
       )
     ) {
       return;
@@ -534,13 +856,24 @@ export default function KonversiNilaiClient({
     setRestoredFromDraft(false);
     setFeedback(null);
     if (typeof window !== "undefined") {
-      window.localStorage.removeItem(draftStorageKey(activeRombel.id));
+      window.localStorage.removeItem(
+        buildDraftKey(activeRombel.id, activePembelajaranId)
+      );
+      window.localStorage.removeItem(`stupa_konversi_nilai_draft_v1_${activeRombel.id}`);
     }
     setDraftSavedAt(null);
   };
 
   const handleOpenTransferModal = () => {
     setFeedback(null);
+
+    if (!activeMapelOption) {
+      setFeedback({
+        type: "error",
+        message: "Pilih Mata Pelajaran (Kode Mapel yang Diampu) terlebih dahulu.",
+      });
+      return;
+    }
 
     if (nilaiTertinggiDiinginkan.trim() === "" || parsedTargetMax === null) {
       setFeedback({
@@ -571,7 +904,7 @@ export default function KonversiNilaiClient({
       setFeedback({
         type: "error",
         message:
-          "Isi minimal 1 Nilai Dasar siswa terlebih dahulu sebelum melakukan Transfer Nilai.",
+          "Isi minimal 1 Nilai Dasar siswa (atau klik 'Tarik Nilai Akhir') terlebih dahulu sebelum melakukan Transfer Nilai.",
       });
       return;
     }
@@ -587,7 +920,8 @@ export default function KonversiNilaiClient({
     for (const s of activeRombel.siswaList) {
       const val = nilaiKonversiMap[s.siswaId];
       if (val !== null && val !== undefined && !Number.isNaN(val)) {
-        validConvertedScores[s.siswaId] = val;
+        validConvertedScores[s.siswaId] =
+          selectedTargetType === "NILAI_AKHIR" ? Math.round(val) : val;
       }
     }
 
@@ -624,6 +958,8 @@ export default function KonversiNilaiClient({
     } else if (selectedTargetType === "SAS") {
       penilaianId = activeMapelOption.sasOption.penilaianId;
       namaKolom = activeMapelOption.sasOption.nama || "SAS";
+    } else if (selectedTargetType === "NILAI_AKHIR") {
+      namaKolom = "Nilai Akhir";
     }
 
     startTransition(async () => {
@@ -640,7 +976,17 @@ export default function KonversiNilaiClient({
       if (!res.success) {
         setFeedback({ type: "error", message: res.message });
       } else {
-        // Sinkronkan juga draft localStorage Kelas & Input Nilai agar nilai hasil transfer langsung tampil
+        if (selectedTargetType === "NILAI_AKHIR" && res.nilaiAkhirMap) {
+          setLocalNilaiAkhirOverride((prev) => ({
+            ...prev,
+            [activeMapelOption.pembelajaranId]: {
+              ...(prev[activeMapelOption.pembelajaranId] || {}),
+              ...res.nilaiAkhirMap,
+            },
+          }));
+        }
+
+        // Sinkronkan juga draft localStorage Kelas & Input Nilai apabila mentransfer ke kolom penilaian
         if (typeof window !== "undefined" && res.penilaianId) {
           try {
             const nilaiDraftKey = `stupa_nilai_draft_v1_${activeMapelOption.pembelajaranId}`;
@@ -665,6 +1011,7 @@ export default function KonversiNilaiClient({
           type: "success",
           message: res.message,
           linkPembelajaranId: activeMapelOption.pembelajaranId,
+          linkRombelId: activeRombel.id,
         });
         router.refresh();
       }
@@ -704,14 +1051,14 @@ export default function KonversiNilaiClient({
             <span className="text-xs font-semibold text-slate-500">{semesterLabel}</span>
           </div>
           <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
-            Konversi Nilai & Transfer ke Daftar Nilai
+            Konversi Nilai & Transfer ke Daftar Nilai / Nilai Akhir
           </h1>
           <p className="text-xs text-slate-500 font-medium">
-            Konversi otomatis nilai dasar siswa ke rentang nilai yang diinginkan secara realtime, lengkap dengan penyimpanan sementara anti-hilang sinyal & fitur transfer langsung ke TP, SLM, STS, atau SAS.
+            Tarik Nilai Akhir atau isi Nilai Dasar siswa, konversi otomatis ke rentang nilai yang diinginkan secara realtime, lalu transfer langsung ke TP, SLM, STS, SAS, atau Nilai Akhir.
           </p>
         </div>
 
-        {/* INDIKATOR PENYIMPANAN SEMENTARA OTOMATIS (ANTI HILANG SINYAL) */}
+        {/* INDIKATOR PENYIMPANAN SEMENTARA OTOMATIS (ANTI HILANG SAAT REFRESH / SINYAL HILANG) */}
         <div className="flex flex-wrap items-center gap-2.5 shrink-0">
           <div
             className={`px-3.5 py-2 rounded-2xl border text-xs font-bold flex items-center gap-2 ${
@@ -728,7 +1075,7 @@ export default function KonversiNilaiClient({
             <div>
               <p className="leading-tight">
                 {isOnline
-                  ? "Penyimpanan Sementara Aktif"
+                  ? "Penyimpanan Sementara Aktif (Tahan Refresh)"
                   : "Sinyal Terputus — Mode Offline Aktif"}
               </p>
               <p className="text-[10px] font-medium opacity-80">
@@ -741,69 +1088,119 @@ export default function KonversiNilaiClient({
         </div>
       </div>
 
-      {/* BAR PILIHAN ROMBEL / KELAS YANG DIAMPU */}
-      <div className="bg-white/95 rounded-2xl p-4 border border-slate-200/90 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-3">
-          <label className="text-xs font-extrabold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
-            <i className="fa-solid fa-chalkboard-user text-blue-600" />
-            <span>Kelas yang Diampu:</span>
-          </label>
-          <select
-            value={activeRombel.id}
-            onChange={(e) => {
-              setSelectedRombelId(e.target.value);
-              setFeedback(null);
-            }}
-            className="px-3.5 py-2 rounded-xl bg-slate-50 border border-slate-300 text-xs font-extrabold text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500"
-          >
-            {rombelOptions.map((r) => (
-              <option key={r.id} value={r.id}>
-                Kelas {r.nama} (Tingkat {r.tingkat}) — {r.siswaList.length} Siswa
-              </option>
-            ))}
-          </select>
+      {/* ===================================================================== */}
+      {/* BAR PILIHAN: KELAS YANG DIAMPU + MATA PELAJARAN (DI SEBELAH KANAN)    */}
+      {/* + TOMBOL ACTION "TARIK NILAI AKHIR"                                   */}
+      {/* ===================================================================== */}
+      <div className="bg-white/95 rounded-2xl p-4 sm:p-5 border border-slate-200/90 shadow-xs space-y-3.5">
+        <div className="grid grid-cols-1 md:grid-cols-12 gap-3.5 items-end">
+          {/* KIRI: KELAS YANG DIAMPU */}
+          <div className="md:col-span-4 space-y-1.5">
+            <label
+              htmlFor="select-rombel-konversi"
+              className="block text-[11px] font-extrabold text-slate-700 uppercase tracking-wider"
+            >
+              <i className="fa-solid fa-chalkboard-user text-blue-600 mr-1.5" />
+              Kelas yang Diampu
+            </label>
+            <select
+              id="select-rombel-konversi"
+              value={activeRombel.id}
+              onChange={(e) => handleSelectRombel(e.target.value)}
+              className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 border border-slate-300 text-xs font-extrabold text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500"
+            >
+              {rombelOptions.map((r) => (
+                <option key={r.id} value={r.id}>
+                  Kelas {r.nama} (Tingkat {r.tingkat}) — {r.siswaList.length} Siswa
+                </option>
+              ))}
+            </select>
+          </div>
 
-          {rombelOptions.length > 1 && (
-            <div className="hidden md:flex flex-wrap items-center gap-1.5">
-              {rombelOptions.map((r) => {
-                const isSelected = r.id === activeRombel.id;
-                return (
-                  <button
-                    key={r.id}
-                    type="button"
-                    onClick={() => {
-                      setSelectedRombelId(r.id);
-                      setFeedback(null);
-                    }}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer border ${
-                      isSelected
-                        ? "bg-blue-600 text-white border-blue-600 shadow-xs"
-                        : "bg-white text-slate-600 border-slate-200 hover:border-blue-300 hover:text-blue-700"
-                    }`}
-                  >
-                    Kelas {r.nama}
-                  </button>
-                );
-              })}
-            </div>
-          )}
+          {/* SEBELAH KANAN KELAS YANG DIAMPU: MATA PELAJARAN (KODE MAPEL YANG DIAMPU) */}
+          <div className="md:col-span-5 space-y-1.5">
+            <label
+              htmlFor="select-mapel-konversi"
+              className="block text-[11px] font-extrabold text-slate-700 uppercase tracking-wider"
+            >
+              <i className="fa-solid fa-book-open text-violet-600 mr-1.5" />
+              Mata Pelajaran (Kode Mapel yang Diampu)
+            </label>
+            <select
+              id="select-mapel-konversi"
+              value={activeMapelOption?.pembelajaranId || ""}
+              onChange={(e) => handleSelectMapel(e.target.value)}
+              className="w-full px-3.5 py-2.5 rounded-xl bg-violet-50/50 border border-violet-300 text-xs font-extrabold text-slate-800 focus:outline-none focus:ring-2 focus:ring-violet-500/30 focus:border-violet-500"
+            >
+              {activeRombel.mapelList.length === 0 ? (
+                <option value="">-- Belum Ada Mapel Diampu --</option>
+              ) : (
+                activeRombel.mapelList.map((m) => (
+                  <option key={m.pembelajaranId} value={m.pembelajaranId}>
+                    {m.mapelKode} — {m.mapelNama} (Kelas {activeRombel.nama})
+                  </option>
+                ))
+              )}
+            </select>
+          </div>
+
+          {/* TOMBOL ACTION "TARIK NILAI AKHIR" */}
+          <div className="md:col-span-3">
+            <button
+              type="button"
+              onClick={handleTarikNilaiAkhir}
+              disabled={!activeMapelOption || isPulling}
+              title="Tarik Nilai Akhir siswa dari kelas & mata pelajaran yang dipilih langsung ke Kolom Nilai Dasar dan konversi otomatis"
+              className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white font-extrabold text-xs shadow-md shadow-amber-500/20 transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+            >
+              {isPulling ? (
+                <>
+                  <i className="fa-solid fa-spinner fa-spin" />
+                  <span>Menarik Nilai Akhir...</span>
+                </>
+              ) : (
+                <>
+                  <i className="fa-solid fa-cloud-arrow-down" />
+                  <span>Tarik Nilai Akhir</span>
+                </>
+              )}
+            </button>
+          </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-3 text-xs text-slate-600">
-          <span>
-            Pendidik: <strong className="text-slate-800">{guruNama}</strong>
-          </span>
-          <span>•</span>
-          <span>
-            Jumlah Siswa: <strong className="text-blue-700">{activeRombel.siswaList.length}</strong>
-          </span>
-          <span>•</span>
-          <span>
-            Mapel Diampu:{" "}
-            <strong className="text-violet-700">
-              {activeRombel.mapelList.map((m) => m.mapelKode).join(", ") || "-"}
-            </strong>
-          </span>
+        {/* Info Ringkas Kelas & Mapel Aktif */}
+        <div className="pt-2.5 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-600">
+          <div className="flex flex-wrap items-center gap-2.5">
+            <span>
+              Pendidik: <strong className="text-slate-800">{guruNama}</strong>
+            </span>
+            <span>•</span>
+            <span>
+              Kelas Aktif:{" "}
+              <strong className="text-blue-700">
+                Kelas {activeRombel.nama} ({activeRombel.siswaList.length} Siswa)
+              </strong>
+            </span>
+            <span>•</span>
+            <span>
+              Mapel Aktif:{" "}
+              <strong className="text-violet-700">
+                {activeMapelOption
+                  ? `${activeMapelOption.mapelKode} — ${activeMapelOption.mapelNama} (KKTP ${activeMapelOption.kktp})`
+                  : "-"}
+              </strong>
+            </span>
+          </div>
+
+          {activeMapelOption && (
+            <Link
+              href={`/guru/nilai/${activeMapelOption.pembelajaranId}`}
+              className="text-xs font-bold text-blue-600 hover:text-blue-800 inline-flex items-center gap-1"
+            >
+              <span>Lihat Lembar Penilaian {activeMapelOption.mapelKode}</span>
+              <i className="fa-solid fa-arrow-up-right-from-square text-[10px]" />
+            </Link>
+          )}
         </div>
       </div>
 
@@ -813,8 +1210,14 @@ export default function KonversiNilaiClient({
           <div className="flex items-center gap-2.5 font-semibold">
             <i className="fa-solid fa-rotate-left text-sky-600 text-sm" />
             <span>
-              Data <strong>Nilai Dasar</strong> & <strong>Nilai Konversi</strong> Kelas{" "}
-              {activeRombel.nama} berhasil dipulihkan otomatis dari penyimpanan sementara.
+              Data <strong>Nilai Dasar</strong> & <strong>Nilai Konversi</strong> untuk{" "}
+              <strong>
+                {activeMapelOption
+                  ? `${activeMapelOption.mapelKode} (${activeMapelOption.mapelNama}) — `
+                  : ""}
+                Kelas {activeRombel.nama}
+              </strong>{" "}
+              tetap tersimpan dan berhasil dipulihkan otomatis.
             </span>
           </div>
           <button
@@ -856,7 +1259,16 @@ export default function KonversiNilaiClient({
                 className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition inline-flex items-center gap-1.5 shadow-xs"
               >
                 <i className="fa-solid fa-table-list" />
-                <span>Buka Daftar Nilai &rarr;</span>
+                <span>Buka Lembar Penilaian &rarr;</span>
+              </Link>
+            )}
+            {feedback.linkRombelId && (
+              <Link
+                href={`/guru/leger?rombelId=${feedback.linkRombelId}`}
+                className="px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold transition inline-flex items-center gap-1.5 shadow-xs"
+              >
+                <i className="fa-solid fa-list-check" />
+                <span>Lihat Leger Nilai &rarr;</span>
               </Link>
             )}
             <button
@@ -889,18 +1301,18 @@ export default function KonversiNilaiClient({
             <div className="inline-flex items-center rounded-xl bg-slate-100 p-1 border border-slate-200 text-[11px] font-bold">
               <button
                 type="button"
-                onClick={() => setRoundingMode("DECIMAL_2")}
-                className={`px-2.5 py-1 rounded-lg transition cursor-pointer ${
-                  roundingMode === "DECIMAL_2"
-                    ? "bg-white text-violet-700 shadow-xs"
-                    : "text-slate-600 hover:text-slate-900"
-                }`}
-              >
-                Presisi (2 Desimal)
-              </button>
-              <button
-                type="button"
-                onClick={() => setRoundingMode("INTEGER")}
+                onClick={() => {
+                  setRoundingMode("INTEGER");
+                  writeDraftNow(
+                    activeRombelId,
+                    activePembelajaranId,
+                    nilaiDasarMap,
+                    nilaiKonversiMap,
+                    nilaiTertinggiDiinginkan,
+                    nilaiTerendahDiinginkan,
+                    "INTEGER"
+                  );
+                }}
                 className={`px-2.5 py-1 rounded-lg transition cursor-pointer ${
                   roundingMode === "INTEGER"
                     ? "bg-white text-violet-700 shadow-xs"
@@ -908,6 +1320,28 @@ export default function KonversiNilaiClient({
                 }`}
               >
                 Bulat (Satuan)
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setRoundingMode("DECIMAL_2");
+                  writeDraftNow(
+                    activeRombelId,
+                    activePembelajaranId,
+                    nilaiDasarMap,
+                    nilaiKonversiMap,
+                    nilaiTertinggiDiinginkan,
+                    nilaiTerendahDiinginkan,
+                    "DECIMAL_2"
+                  );
+                }}
+                className={`px-2.5 py-1 rounded-lg transition cursor-pointer ${
+                  roundingMode === "DECIMAL_2"
+                    ? "bg-white text-violet-700 shadow-xs"
+                    : "text-slate-600 hover:text-slate-900"
+                }`}
+              >
+                Presisi (2 Desimal)
               </button>
             </div>
 
@@ -992,7 +1426,7 @@ export default function KonversiNilaiClient({
               required
               placeholder="Contoh: 95"
               value={nilaiTertinggiDiinginkan}
-              onChange={(e) => setNilaiTertinggiDiinginkan(e.target.value)}
+              onChange={(e) => handleTargetMaxChange(e.target.value)}
               className={`w-full px-3.5 py-2.5 rounded-xl bg-white border font-mono text-lg font-black text-center focus:outline-none focus:ring-2 transition ${
                 nilaiTertinggiDiinginkan.trim() === "" || parsedTargetMax === null
                   ? "border-rose-400 text-rose-700 focus:ring-rose-500/30"
@@ -1024,7 +1458,7 @@ export default function KonversiNilaiClient({
               required
               placeholder="Contoh: 75"
               value={nilaiTerendahDiinginkan}
-              onChange={(e) => setNilaiTerendahDiinginkan(e.target.value)}
+              onChange={(e) => handleTargetMinChange(e.target.value)}
               className={`w-full px-3.5 py-2.5 rounded-xl bg-white border font-mono text-lg font-black text-center focus:outline-none focus:ring-2 transition ${
                 nilaiTerendahDiinginkan.trim() === "" || parsedTargetMin === null
                   ? "border-rose-400 text-rose-700 focus:ring-rose-500/30"
@@ -1040,13 +1474,13 @@ export default function KonversiNilaiClient({
           <div className="p-4 rounded-2xl bg-gradient-to-br from-violet-600 via-indigo-600 to-blue-600 text-white flex flex-col justify-between shadow-md shadow-indigo-500/15">
             <div>
               <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-wider text-indigo-100 mb-1">
-                <span>Aksi Integrasi</span>
+                <span>Mapel: {activeMapelOption?.mapelKode || "-"}</span>
                 <span className="px-2 py-0.5 rounded-full bg-white/20 text-white">
                   {filledCount}/{activeRombel.siswaList.length} Siswa
                 </span>
               </div>
               <p className="text-xs font-bold text-white/95 leading-snug">
-                Kirim hasil Nilai Konversi ke TP, SLM, STS, atau SAS
+                Kirim ke TP, SLM, STS, SAS, atau Nilai Akhir ({activeMapelOption?.mapelKode || "-"})
               </p>
             </div>
 
@@ -1075,7 +1509,7 @@ export default function KonversiNilaiClient({
           {!isDesiredRangeValid && (
             <span className="text-rose-600 font-bold">
               <i className="fa-solid fa-circle-exclamation mr-1" />
-              Pastikan Nilai Tertinggi & Terendah Diinginkan terisi dengan benar!
+              Isi Nilai Tertinggi & Terendah Diinginkan untuk menampilkan Nilai Konversi!
             </span>
           )}
         </div>
@@ -1089,9 +1523,12 @@ export default function KonversiNilaiClient({
           <div>
             <h3 className="text-sm font-extrabold text-slate-800">
               Daftar Peserta Didik • Kelas {activeRombel.nama}
+              {activeMapelOption
+                ? ` • ${activeMapelOption.mapelKode} (${activeMapelOption.mapelNama})`
+                : ""}
             </h3>
             <p className="text-[11px] text-slate-500">
-              Ketik pada <strong>Kolom Nilai (Nilai Dasar)</strong> atau tempel (Paste) langsung dari Excel. <strong>Kolom Nilai Konversi</strong> terhitung otomatis secara realtime.
+              Ketik manual pada <strong>Kolom Nilai (Nilai Dasar)</strong>, tempel (Paste) dari Excel, atau klik tombol <strong>Tarik Nilai Akhir</strong> di atas.
             </p>
           </div>
           <div className="text-xs font-bold text-slate-600">
@@ -1115,7 +1552,7 @@ export default function KonversiNilaiClient({
                 <th className="py-3.5 px-5 text-center w-52 bg-blue-900/90 border-r border-slate-700">
                   <div>Kolom Nilai</div>
                   <div className="text-[9px] font-normal text-blue-200 normal-case mt-0.5">
-                    (Nilai Dasar — Diisi Manual)
+                    (Nilai Dasar — Manual / Tarik Nilai Akhir)
                   </div>
                 </th>
                 <th className="py-3.5 px-5 text-center w-52 bg-violet-900/90">
@@ -1152,7 +1589,9 @@ export default function KonversiNilaiClient({
                     <tr
                       key={siswa.siswaId}
                       className={`transition-colors ${
-                        hasNilaiDasar ? "bg-white hover:bg-blue-50/30" : "bg-slate-50/30 hover:bg-slate-100/50"
+                        hasNilaiDasar
+                          ? "bg-white hover:bg-blue-50/30"
+                          : "bg-slate-50/30 hover:bg-slate-100/50"
                       }`}
                     >
                       <td className="py-2.5 px-4 text-center font-mono font-bold text-slate-500 border-r border-slate-100">
@@ -1180,7 +1619,7 @@ export default function KonversiNilaiClient({
                         {siswa.jenisKelamin}
                       </td>
 
-                      {/* KOLOM 1: NILAI (NILAI DASAR DIISI MANUAL) */}
+                      {/* KOLOM 1: NILAI (NILAI DASAR DIISI MANUAL / DITARIK DARI NILAI AKHIR) */}
                       <td className="py-2 px-4 border-r border-slate-100 bg-blue-50/20">
                         <input
                           ref={(el) => {
@@ -1225,8 +1664,10 @@ export default function KonversiNilaiClient({
 
       {/* ===================================================================== */}
       {/* MODAL ACTION "TRANSFER NILAI"                                         */}
+      {/* (Mengacu pada Kelas & Mata Pelajaran yang dipilih di bar atas,        */}
+      {/*  dengan Pilihan Transfer ke: TP / SLM / STS / SAS / Nilai Akhir)      */}
       {/* ===================================================================== */}
-      {showTransferModal && (
+      {showTransferModal && activeMapelOption && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs">
           <div className="bg-white rounded-3xl max-w-lg w-full p-6 sm:p-7 border border-slate-200 shadow-2xl space-y-5 animate-in fade-in zoom-in-95 duration-150">
             <div className="flex items-start justify-between gap-3 pb-3 border-b border-slate-100">
@@ -1236,10 +1677,13 @@ export default function KonversiNilaiClient({
                 </div>
                 <div>
                   <h3 className="text-base font-extrabold text-slate-900">
-                    Transfer Nilai Konversi ke Daftar Nilai
+                    Transfer Nilai Konversi
                   </h3>
                   <p className="text-xs text-slate-500">
-                    Kelas {activeRombel.nama} • {filledCount} Nilai Konversi siap ditransfer
+                    Kelas {activeRombel.nama} •{" "}
+                    <strong className="text-violet-700">
+                      {activeMapelOption.mapelKode} ({activeMapelOption.mapelNama})
+                    </strong>
                   </p>
                 </div>
               </div>
@@ -1253,34 +1697,30 @@ export default function KonversiNilaiClient({
             </div>
 
             <form onSubmit={handleConfirmTransfer} className="space-y-4">
-              {/* 1. DROPDOWN MATA PELAJARAN (KODE MAPEL YANG DIAMPU) */}
-              <div className="space-y-1.5">
-                <label className="block text-xs font-extrabold text-slate-700 uppercase tracking-wider">
-                  1. Mata Pelajaran (Kode Mapel yang Diampu){" "}
-                  <span className="text-rose-600">*</span>
-                </label>
-                <select
-                  required
-                  value={activeMapelOption?.pembelajaranId || ""}
-                  onChange={(e) => setSelectedPembelajaranId(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 border border-slate-300 text-xs font-extrabold text-slate-800 focus:outline-none focus:ring-2 focus:ring-violet-500/30 focus:border-violet-500"
-                >
-                  {activeRombel.mapelList.map((m) => (
-                    <option key={m.pembelajaranId} value={m.pembelajaranId}>
-                      {m.mapelKode} — {m.mapelNama} (Kelas {activeRombel.nama})
-                    </option>
-                  ))}
-                </select>
+              {/* INFO KELAS & MATA PELAJARAN YANG DIPILIH */}
+              <div className="p-3.5 rounded-2xl bg-violet-50/70 border border-violet-200 flex items-center justify-between gap-3 text-xs">
+                <div>
+                  <span className="text-[10px] font-extrabold uppercase tracking-wider text-violet-600 block">
+                    Kelas & Mata Pelajaran Tujuan
+                  </span>
+                  <p className="font-extrabold text-slate-900 mt-0.5">
+                    Kelas {activeRombel.nama} • {activeMapelOption.mapelKode} —{" "}
+                    {activeMapelOption.mapelNama}
+                  </p>
+                </div>
+                <span className="px-2.5 py-1 rounded-xl bg-white border border-violet-200 text-violet-700 font-mono font-bold text-[11px] shrink-0">
+                  {filledCount} Siswa
+                </span>
               </div>
 
-              {/* 2. DROPDOWN PILIHAN KE TP, SLM, STS, SAS */}
+              {/* PILIHAN TRANSFER KE (TP / SLM / STS / SAS / NILAI AKHIR) */}
               <div className="space-y-2">
                 <label className="block text-xs font-extrabold text-slate-700 uppercase tracking-wider">
-                  2. Pilihan Transfer ke (TP / SLM / STS / SAS){" "}
+                  Pilihan Transfer ke (TP / SLM / STS / SAS / Nilai Akhir){" "}
                   <span className="text-rose-600">*</span>
                 </label>
 
-                {/* Dropdown terpadu berisi seluruh Kode TP (Menu Tujuan Pembelajaran), SLM (Daftar Nilai), STS, & SAS */}
+                {/* Dropdown terpadu berisi Kode TP (Menu Tujuan Pembelajaran), SLM (Daftar Nilai), STS, SAS, & Nilai Akhir */}
                 <select
                   required
                   value={
@@ -1290,7 +1730,9 @@ export default function KonversiNilaiClient({
                       ? `SLM::${selectedSlmKey}`
                       : selectedTargetType === "STS"
                       ? "STS::STS"
-                      : "SAS::SAS"
+                      : selectedTargetType === "SAS"
+                      ? "SAS::SAS"
+                      : "NILAI_AKHIR::NILAI_AKHIR"
                   }
                   onChange={(e) => {
                     const val = e.target.value;
@@ -1304,16 +1746,24 @@ export default function KonversiNilaiClient({
                       setSelectedTargetType("STS");
                     } else if (val === "SAS::SAS") {
                       setSelectedTargetType("SAS");
+                    } else if (val === "NILAI_AKHIR::NILAI_AKHIR") {
+                      setSelectedTargetType("NILAI_AKHIR");
                     }
                   }}
                   className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 border border-slate-300 text-xs font-extrabold text-slate-800 focus:outline-none focus:ring-2 focus:ring-violet-500/30 focus:border-violet-500"
                 >
+                  <optgroup label="Nilai Akhir Rapor (Sesuai Kelas & Mapel yang Dipilih)">
+                    <option value="NILAI_AKHIR::NILAI_AKHIR">
+                      Nilai Akhir — {activeMapelOption.mapelKode} ({activeMapelOption.mapelNama})
+                    </option>
+                  </optgroup>
+
                   <optgroup
                     label={`Tujuan Pembelajaran (TP — ${
-                      activeMapelOption?.tpOptions.length || 0
+                      activeMapelOption.tpOptions.length || 0
                     } Kode TP di Menu Tujuan Pembelajaran)`}
                   >
-                    {activeMapelOption && activeMapelOption.tpOptions.length > 0 ? (
+                    {activeMapelOption.tpOptions.length > 0 ? (
                       activeMapelOption.tpOptions.map((tp) => (
                         <option key={`TP::${tp.kodeTp}`} value={`TP::${tp.kodeTp}`}>
                           TP: {tp.kodeTp} —{" "}
@@ -1331,10 +1781,10 @@ export default function KonversiNilaiClient({
 
                   <optgroup
                     label={`Sumatif Lingkup Materi (SLM — ${
-                      activeMapelOption?.slmOptions.length || 0
+                      activeMapelOption.slmOptions.length || 0
                     } Kolom di Daftar Nilai)`}
                   >
-                    {activeMapelOption && activeMapelOption.slmOptions.length > 0 ? (
+                    {activeMapelOption.slmOptions.length > 0 ? (
                       activeMapelOption.slmOptions.map((slm) => (
                         <option key={`SLM::${slm.nama}`} value={`SLM::${slm.nama}`}>
                           SLM: {slm.nama}
@@ -1349,41 +1799,47 @@ export default function KonversiNilaiClient({
 
                   <optgroup label="Sumatif Tengah & Akhir Semester (STS & SAS)">
                     <option value="STS::STS">
-                      STS — Sumatif Tengah Semester ({activeMapelOption?.stsOption.nama || "STS"})
+                      STS — Sumatif Tengah Semester ({activeMapelOption.stsOption.nama || "STS"})
                     </option>
                     <option value="SAS::SAS">
-                      SAS — Sumatif Akhir Semester ({activeMapelOption?.sasOption.nama || "SAS"})
+                      SAS — Sumatif Akhir Semester ({activeMapelOption.sasOption.nama || "SAS"})
                     </option>
                   </optgroup>
                 </select>
 
-                {/* Tombol Kategori Cepat (TP / SLM / STS / SAS) */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1">
+                {/* Tombol Kategori Cepat (TP / SLM / STS / SAS / Nilai Akhir) */}
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 pt-1">
                   {(
                     [
                       {
                         type: "TP" as const,
                         label: "TP",
-                        sub: `${activeMapelOption?.tpOptions.length || 0} Kode TP`,
+                        sub: `${activeMapelOption.tpOptions.length || 0} Kode TP`,
                         icon: "fa-bullseye",
                       },
                       {
                         type: "SLM" as const,
                         label: "SLM",
-                        sub: `${activeMapelOption?.slmOptions.length || 1} Kolom SLM`,
+                        sub: `${activeMapelOption.slmOptions.length || 1} SLM`,
                         icon: "fa-layer-group",
                       },
                       {
                         type: "STS" as const,
                         label: "STS",
-                        sub: "Tengah Semester",
+                        sub: "Tengah Sem.",
                         icon: "fa-file-pen",
                       },
                       {
                         type: "SAS" as const,
                         label: "SAS",
-                        sub: "Akhir Semester",
+                        sub: "Akhir Sem.",
                         icon: "fa-award",
+                      },
+                      {
+                        type: "NILAI_AKHIR" as const,
+                        label: "Nilai Akhir",
+                        sub: "Rapor Bulat",
+                        icon: "fa-star",
                       },
                     ]
                   ).map((item) => {
@@ -1399,12 +1855,12 @@ export default function KonversiNilaiClient({
                             : "bg-slate-50 text-slate-700 border-slate-200 hover:border-violet-300"
                         }`}
                       >
-                        <div className="flex items-center justify-between text-xs font-black">
-                          <span>{item.label}</span>
-                          <i className={`fa-solid ${item.icon} text-[11px] opacity-80`} />
+                        <div className="flex items-center justify-between text-[11px] font-black">
+                          <span className="truncate">{item.label}</span>
+                          <i className={`fa-solid ${item.icon} text-[10px] opacity-80`} />
                         </div>
                         <p
-                          className={`text-[10px] mt-0.5 truncate ${
+                          className={`text-[9px] mt-0.5 truncate ${
                             active ? "text-violet-100" : "text-slate-400"
                           }`}
                         >
@@ -1416,14 +1872,14 @@ export default function KonversiNilaiClient({
                 </div>
               </div>
 
-              {/* 3. DETAIL PILIHAN KODE TP ATAU KOLOM SLM */}
+              {/* DETAIL PILIHAN KODE TP ATAU KOLOM SLM */}
               {selectedTargetType === "TP" && (
                 <div className="space-y-1.5">
                   <label className="block text-xs font-extrabold text-slate-700 uppercase tracking-wider">
                     Detail Kode TP (Sesuai Menu Tujuan Pembelajaran){" "}
                     <span className="text-rose-600">*</span>
                   </label>
-                  {activeMapelOption && activeMapelOption.tpOptions.length > 0 ? (
+                  {activeMapelOption.tpOptions.length > 0 ? (
                     <select
                       required
                       value={selectedTpKode}
@@ -1464,7 +1920,7 @@ export default function KonversiNilaiClient({
                     Detail Kolom SLM (Sesuai Data SLM di Daftar Nilai){" "}
                     <span className="text-rose-600">*</span>
                   </label>
-                  {activeMapelOption && activeMapelOption.slmOptions.length > 0 ? (
+                  {activeMapelOption.slmOptions.length > 0 ? (
                     <select
                       required
                       value={selectedSlmKey}
@@ -1499,7 +1955,7 @@ export default function KonversiNilaiClient({
                     Nilai Konversi akan ditransfer langsung ke kolom{" "}
                     <strong>STS (Sumatif Tengah Semester)</strong> pada mata pelajaran{" "}
                     <strong>
-                      {activeMapelOption?.mapelKode} ({activeMapelOption?.mapelNama})
+                      {activeMapelOption.mapelKode} ({activeMapelOption.mapelNama})
                     </strong>
                     .
                   </span>
@@ -1513,9 +1969,23 @@ export default function KonversiNilaiClient({
                     Nilai Konversi akan ditransfer langsung ke kolom{" "}
                     <strong>SAS (Sumatif Akhir Semester)</strong> pada mata pelajaran{" "}
                     <strong>
-                      {activeMapelOption?.mapelKode} ({activeMapelOption?.mapelNama})
+                      {activeMapelOption.mapelKode} ({activeMapelOption.mapelNama})
                     </strong>
                     .
+                  </span>
+                </div>
+              )}
+
+              {selectedTargetType === "NILAI_AKHIR" && (
+                <div className="p-3.5 rounded-2xl bg-emerald-50/80 border border-emerald-200 text-xs text-emerald-900 font-semibold flex items-center gap-2.5">
+                  <i className="fa-solid fa-star text-emerald-600 text-base" />
+                  <span>
+                    Nilai Konversi (dibulatkan ke <strong>bilangan bulat</strong>) akan dikirim langsung menjadi{" "}
+                    <strong>Nilai Akhir</strong> mata pelajaran{" "}
+                    <strong>
+                      {activeMapelOption.mapelKode} ({activeMapelOption.mapelNama})
+                    </strong>{" "}
+                    pada <strong>Kelas {activeRombel.nama}</strong> (tersinkronisasi ke Lembar Penilaian Siswa, Leger Nilai, & Ekspor E-Rapor).
                   </span>
                 </div>
               )}

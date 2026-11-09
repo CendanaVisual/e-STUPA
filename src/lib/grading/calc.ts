@@ -58,14 +58,14 @@ export function hitungNilaiAkhir(k: KomponenNilai, b: Bobot) {
   const nilaiAkhir =
     totalBobot === 0
       ? null
-      : round2(aktif.reduce((s, [v, w]) => s + v * w, 0) / totalBobot);
+      : Math.round(aktif.reduce((s, [v, w]) => s + v * w, 0) / totalBobot);
 
   return { rataHarian, nilaiUts: k.uts, nilaiUas: k.uas, nilaiAkhir };
 }
 
 /**
  * Kalkulasi lengkap mencakup Formatif/TP (HARIAN), Sumatif Lingkup Materi (SLM),
- * STS (UTS), dan SAS (UAS).
+ * STS (UTS), dan SAS (UAS). Hasil Nilai Akhir selalu bilangan bulat (Math.round).
  */
 export function hitungNilaiAkhirLengkap(k: KomponenNilaiLengkap, b: Bobot) {
   const rataHarian = rataRata(k.harian);
@@ -97,7 +97,8 @@ export function hitungNilaiAkhirLengkap(k: KomponenNilaiLengkap, b: Bobot) {
     const rawAvailable = [rataHarian, rataSlm, nilaiUts, nilaiUas].filter(
       (v): v is number => v !== null
     );
-    const fallbackAkhir = rawAvailable.length > 0 ? rataRata(rawAvailable) : null;
+    const avgRaw = rawAvailable.length > 0 ? rataRata(rawAvailable) : null;
+    const fallbackAkhir = avgRaw !== null ? Math.round(avgRaw) : null;
     return { rataHarian, rataSlm, nilaiUts, nilaiUas, nilaiAkhir: fallbackAkhir };
   }
 
@@ -105,7 +106,7 @@ export function hitungNilaiAkhirLengkap(k: KomponenNilaiLengkap, b: Bobot) {
   const nilaiAkhir =
     totalBobot === 0
       ? null
-      : round2(parts.reduce((s, [v, w]) => s + v * w, 0) / totalBobot);
+      : Math.round(parts.reduce((s, [v, w]) => s + v * w, 0) / totalBobot);
 
   return { rataHarian, rataSlm, nilaiUts, nilaiUas, nilaiAkhir };
 }

@@ -44,6 +44,10 @@ interface InputNilaiClientProps {
   penilaianList: PenilaianColItem[];
   anggotaList: AnggotaNilaiItem[];
   initialScores: Record<string, string>; // key: `${penilaianId}_${siswaId}` -> string score
+  initialNilaiRaporMap?: Record<
+    string,
+    { nilaiAkhir: number; isOverride: boolean }
+  >;
 }
 
 interface StoredDraftPayload {
@@ -86,16 +90,36 @@ export default function InputNilaiClient({
   penilaianList,
   anggotaList,
   initialScores,
+  initialNilaiRaporMap = {},
 }: InputNilaiClientProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const isReadOnly = pembelajaran.semesterStatus !== "AKTIF";
   const draftStorageKey = `stupa_nilai_draft_v1_${pembelajaran.id}`;
+  const isHydratedRef = useRef<boolean>(false);
 
   // Baseline server values & current live cell values
   const [baselineScores, setBaselineScores] = useState<Record<string, string>>(initialScores);
-  const [scores, setScores] = useState<Record<string, string>>(initialScores);
-  const scoresRef = useRef<Record<string, string>>(initialScores);
+  const [scores, setScores] = useState<Record<string, string>>(() => {
+    if (typeof window === "undefined" || isReadOnly) return initialScores;
+    try {
+      const raw = window.localStorage.getItem(`stupa_nilai_draft_v1_${pembelajaran.id}`);
+      if (raw) {
+        const parsed = JSON.parse(raw) as StoredDraftPayload;
+        if (parsed && parsed.values && typeof parsed.values === "object") {
+          const merged: Record<string, string> = { ...initialScores };
+          for (const [k, v] of Object.entries(parsed.values)) {
+            merged[k] = String(v);
+          }
+          return merged;
+        }
+      }
+    } catch {
+      // Abaikan jika gagal parse pada render awal
+    }
+    return initialScores;
+  });
+  const scoresRef = useRef<Record<string, string>>(scores);
   scoresRef.current = scores;
 
   const [draftSavedAt, setDraftSavedAt] = useState<string | null>(null);
@@ -129,14 +153,31 @@ export default function InputNilaiClient({
     setLiveBobotUas(pembelajaran.bobotUas);
   }, [pembelajaran.kktp, pembelajaran.bobotHarian, pembelajaran.bobotUts, pembelajaran.bobotUas]);
 
-  // Sync baseline when server props refresh (e.g. after adding/removing a column), preserving unsaved edits!
+  // Sync baseline when server props refresh (e.g. after adding/removing a column), preserving unsaved edits & localStorage draft!
   useEffect(() => {
     setBaselineScores(initialScores);
     setScores((prev) => {
-      const merged = { ...initialScores };
+      const merged: Record<string, string> = { ...initialScores };
+      // Pertahankan perubahan lokal di state
       for (const [k, v] of Object.entries(prev)) {
         if (v !== baselineScores[k]) {
           merged[k] = v;
+        }
+      }
+      // Pertahankan juga perubahan dari localStorage draft agar saat refresh tidak pernah hilang
+      if (typeof window !== "undefined" && !isReadOnly) {
+        try {
+          const raw = window.localStorage.getItem(draftStorageKey);
+          if (raw) {
+            const parsed = JSON.parse(raw) as StoredDraftPayload;
+            if (parsed && parsed.values && typeof parsed.values === "object") {
+              for (const [k, v] of Object.entries(parsed.values)) {
+                merged[k] = String(v);
+              }
+            }
+          }
+        } catch {
+          // Ignore
         }
       }
       return merged;
@@ -160,7 +201,7 @@ export default function InputNilaiClient({
   const isDirtyRef = useRef<boolean>(false);
   isDirtyRef.current = isDirty;
 
-  // Flush current unsaved edits to localStorage
+  // Flush current unsaved edits to localStorage immediately
   const persistDraftNow = useCallback(
     (currentValues: Record<string, string>) => {
       if (typeof window === "undefined" || isReadOnly) return;
@@ -179,8 +220,10 @@ export default function InputNilaiClient({
         });
 
         if (Object.keys(diffValues).length === 0) {
-          window.localStorage.removeItem(draftStorageKey);
-          setDraftSavedAt(null);
+          if (isHydratedRef.current) {
+            window.localStorage.removeItem(draftStorageKey);
+            setDraftSavedAt(null);
+          }
           return;
         }
 
@@ -200,7 +243,10 @@ export default function InputNilaiClient({
 
   // Restore draft automatically on mount if any unsaved draft exists in localStorage
   useEffect(() => {
-    if (typeof window === "undefined" || isReadOnly) return;
+    if (typeof window === "undefined" || isReadOnly) {
+      isHydratedRef.current = true;
+      return;
+    }
     setIsOnline(window.navigator.onLine);
 
     try {
@@ -227,17 +273,16 @@ export default function InputNilaiClient({
       }
     } catch {
       // Ignore malformed draft
+    } finally {
+      isHydratedRef.current = true;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draftStorageKey, isReadOnly]);
 
-  // Debounced auto-save on every score change
+  // Immediate + debounced auto-save on every score change after hydration
   useEffect(() => {
-    if (isReadOnly) return;
-    const timer = window.setTimeout(() => {
-      persistDraftNow(scores);
-    }, 250);
-    return () => window.clearTimeout(timer);
+    if (isReadOnly || !isHydratedRef.current) return;
+    persistDraftNow(scores);
   }, [scores, persistDraftNow, isReadOnly]);
 
   // Online/offline listeners + emergency flush on page exit / tab hide / network loss
@@ -286,7 +331,7 @@ export default function InputNilaiClient({
     };
   }, [persistDraftNow]);
 
-  // Realtime calculation per student: Rata TP, Rata SLM, Nilai Akhir, Status
+  // Realtime calculation per student: Rata TP, Rata SLM, Nilai Akhir (Bilangan Bulat), Status
   const realtimeCalcBySiswa = useMemo(() => {
     const map: Record<
       string,
@@ -303,9 +348,15 @@ export default function InputNilaiClient({
       const slmVals: (number | null)[] = [];
       const utsVals: (number | null)[] = [];
       const uasVals: (number | null)[] = [];
+      let isStudentRowEdited = false;
 
       for (const col of penilaianList) {
-        const raw = scores[`${col.id}_${agg.siswaId}`]?.trim() ?? "";
+        const key = `${col.id}_${agg.siswaId}`;
+        const raw = scores[key]?.trim() ?? "";
+        const baseRaw = baselineScores[key]?.trim() ?? "";
+        if (raw !== baseRaw) {
+          isStudentRowEdited = true;
+        }
         if (raw === "") continue;
         const parsed = parseFloat(raw);
         if (Number.isNaN(parsed) || parsed < 0 || parsed > 100) continue;
@@ -330,23 +381,48 @@ export default function InputNilaiClient({
         }
       );
 
+      const savedRapor = initialNilaiRaporMap[agg.siswaId];
+      let finalNilaiAkhir: number | null = null;
+
+      if (savedRapor?.isOverride && !isStudentRowEdited) {
+        finalNilaiAkhir = Math.round(savedRapor.nilaiAkhir);
+      } else if (calc.nilaiAkhir !== null) {
+        finalNilaiAkhir = Math.round(calc.nilaiAkhir);
+      } else if (savedRapor && !isStudentRowEdited) {
+        finalNilaiAkhir = Math.round(savedRapor.nilaiAkhir);
+      }
+
       map[agg.siswaId] = {
         rataTp: calc.rataHarian,
         rataSlm: calc.rataSlm,
-        nilaiAkhir: calc.nilaiAkhir,
-        isTuntas: calc.nilaiAkhir !== null && calc.nilaiAkhir >= liveKktp,
+        nilaiAkhir: finalNilaiAkhir,
+        isTuntas: finalNilaiAkhir !== null && finalNilaiAkhir >= liveKktp,
       };
     }
 
     return map;
-  }, [anggotaList, penilaianList, scores, liveBobotHarian, liveBobotUts, liveBobotUas, liveKktp]);
+  }, [
+    anggotaList,
+    penilaianList,
+    scores,
+    baselineScores,
+    initialNilaiRaporMap,
+    liveBobotHarian,
+    liveBobotUts,
+    liveBobotUas,
+    liveKktp,
+  ]);
 
   const handleCellChange = (penilaianId: string, siswaId: string, value: string) => {
     if (isReadOnly) return;
-    setScores((prev) => ({
-      ...prev,
-      [`${penilaianId}_${siswaId}`]: value,
-    }));
+    setScores((prev) => {
+      const next = {
+        ...prev,
+        [`${penilaianId}_${siswaId}`]: value,
+      };
+      persistDraftNow(next);
+      return next;
+    });
   };
 
   const handleDiscardDraft = () => {

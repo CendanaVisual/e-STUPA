@@ -289,6 +289,18 @@ export async function tarikNilaiKhusus(
       );
 
       if (calc.nilaiAkhir !== null) {
+        const existingRapor = await db.nilaiRapor.findUnique({
+          where: {
+            pembelajaranId_siswaId: {
+              pembelajaranId: pembelajaran.id,
+              siswaId: agg.siswaId,
+            },
+          },
+        });
+        const finalNilaiAkhir =
+          existingRapor?.isOverride && existingRapor.nilaiAkhir !== null
+            ? Math.round(Number(existingRapor.nilaiAkhir))
+            : Math.round(calc.nilaiAkhir);
         const desc = buildDeskripsiCapaianTp(tpEntries, kktp);
         await db.nilaiRapor.upsert({
           where: {
@@ -302,7 +314,7 @@ export async function tarikNilaiKhusus(
             rataSlm: calc.rataSlm,
             nilaiUts: calc.nilaiUts,
             nilaiUas: calc.nilaiUas,
-            nilaiAkhir: calc.nilaiAkhir,
+            nilaiAkhir: finalNilaiAkhir,
             ...(desc.capaianTertinggi ? { capaianTertinggi: desc.capaianTertinggi } : {}),
             ...(desc.capaianTerendah ? { capaianTerendah: desc.capaianTerendah } : {}),
           },
@@ -313,7 +325,7 @@ export async function tarikNilaiKhusus(
             rataSlm: calc.rataSlm,
             nilaiUts: calc.nilaiUts,
             nilaiUas: calc.nilaiUas,
-            nilaiAkhir: calc.nilaiAkhir,
+            nilaiAkhir: finalNilaiAkhir,
             capaianTertinggi: desc.capaianTertinggi,
             capaianTerendah: desc.capaianTerendah,
           },

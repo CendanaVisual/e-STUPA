@@ -18,7 +18,10 @@ export type PenilaianActionResult = {
   message: string;
 };
 
-async function recalculateNilaiRaporPembelajaran(pembelajaranId: string) {
+async function recalculateNilaiRaporPembelajaran(
+  pembelajaranId: string,
+  resetOverrideSiswaIds?: Set<string>
+) {
   const pembelajaran = await db.pembelajaran.findUnique({
     where: { id: pembelajaranId },
     include: {
@@ -27,10 +30,15 @@ async function recalculateNilaiRaporPembelajaran(pembelajaranId: string) {
         include: { nilai: true },
         orderBy: [{ kategori: "asc" }, { urutan: "asc" }],
       },
+      nilaiRapor: true,
     },
   });
 
   if (!pembelajaran) return;
+
+  const existingRaporMap = new Map(
+    pembelajaran.nilaiRapor.map((nr) => [nr.siswaId, nr])
+  );
 
   const masterTps = await db.tujuanPembelajaran.findMany({
     where: {
@@ -85,7 +93,20 @@ async function recalculateNilaiRaporPembelajaran(pembelajaranId: string) {
       }
     );
 
-    if (calc.nilaiAkhir !== null) {
+    const existingRapor = existingRaporMap.get(agg.siswaId);
+    const shouldKeepOverride =
+      Boolean(existingRapor?.isOverride) &&
+      existingRapor?.nilaiAkhir !== null &&
+      existingRapor?.nilaiAkhir !== undefined &&
+      !resetOverrideSiswaIds?.has(agg.siswaId);
+
+    const finalNilaiAkhir: number | null = shouldKeepOverride
+      ? Math.round(Number(existingRapor!.nilaiAkhir))
+      : calc.nilaiAkhir !== null
+      ? Math.round(calc.nilaiAkhir)
+      : null;
+
+    if (finalNilaiAkhir !== null) {
       const desc = buildDeskripsiCapaianTp(tpEntries, kktp);
       await db.nilaiRapor.upsert({
         where: {
@@ -99,9 +120,14 @@ async function recalculateNilaiRaporPembelajaran(pembelajaranId: string) {
           rataSlm: calc.rataSlm,
           nilaiUts: calc.nilaiUts,
           nilaiUas: calc.nilaiUas,
-          nilaiAkhir: calc.nilaiAkhir,
-          capaianTertinggi: desc.capaianTertinggi,
-          capaianTerendah: desc.capaianTerendah,
+          nilaiAkhir: finalNilaiAkhir,
+          isOverride: shouldKeepOverride,
+          ...(tpEntries.length > 0
+            ? {
+                capaianTertinggi: desc.capaianTertinggi,
+                capaianTerendah: desc.capaianTerendah,
+              }
+            : {}),
         },
         create: {
           pembelajaranId,
@@ -110,7 +136,8 @@ async function recalculateNilaiRaporPembelajaran(pembelajaranId: string) {
           rataSlm: calc.rataSlm,
           nilaiUts: calc.nilaiUts,
           nilaiUas: calc.nilaiUas,
-          nilaiAkhir: calc.nilaiAkhir,
+          nilaiAkhir: finalNilaiAkhir,
+          isOverride: shouldKeepOverride,
           capaianTertinggi: desc.capaianTertinggi,
           capaianTerendah: desc.capaianTerendah,
         },
@@ -142,7 +169,7 @@ export async function simpanNilaiBatchAction(
       where: { id: pembelajaranId },
       include: {
         rombel: { include: { anggota: true } },
-        penilaian: true,
+        penilaian: { include: { nilai: true } },
       },
     });
 
@@ -150,13 +177,24 @@ export async function simpanNilaiBatchAction(
       return { success: false, message: "Data pembelajaran tidak ditemukan." };
     }
 
+    const changedSiswaIds = new Set<string>();
+
     for (const pen of pembelajaran.penilaian) {
+      const existingNilaiBySiswa = new Map(
+        pen.nilai.map((n) => [n.siswaId, n.nilai !== null ? Number(n.nilai) : null])
+      );
+
       for (const agg of pembelajaran.rombel.anggota) {
         const key = `${pen.id}_${agg.siswaId}`;
         if (!(key in entries)) continue;
 
         const raw = entries[key]?.trim() ?? "";
+        const prevVal = existingNilaiBySiswa.get(agg.siswaId) ?? null;
+
         if (raw === "") {
+          if (prevVal !== null) {
+            changedSiswaIds.add(agg.siswaId);
+          }
           await db.nilai.deleteMany({
             where: {
               penilaianId: pen.id,
@@ -166,6 +204,9 @@ export async function simpanNilaiBatchAction(
         } else {
           const numVal = parseFloat(raw);
           if (!Number.isNaN(numVal) && numVal >= 0 && numVal <= 100) {
+            if (prevVal === null || Math.abs(prevVal - numVal) > 0.0001) {
+              changedSiswaIds.add(agg.siswaId);
+            }
             await db.nilai.upsert({
               where: {
                 penilaianId_siswaId: {
@@ -189,7 +230,7 @@ export async function simpanNilaiBatchAction(
       }
     }
 
-    await recalculateNilaiRaporPembelajaran(pembelajaranId);
+    await recalculateNilaiRaporPembelajaran(pembelajaranId, changedSiswaIds);
 
     revalidatePath(`/guru/nilai/${pembelajaranId}`);
     revalidatePath(`/admin/leger`);
@@ -487,7 +528,7 @@ export async function updateKktpDanBobotAction(
   }
 }
 
-export type TransferNilaiTargetType = "TP" | "SLM" | "STS" | "SAS";
+export type TransferNilaiTargetType = "TP" | "SLM" | "STS" | "SAS" | "NILAI_AKHIR";
 
 export type TransferNilaiKonversiPayload = {
   pembelajaranId: string;
@@ -505,11 +546,129 @@ export type TransferNilaiKonversiResult = {
   penilaianId?: string;
   kolomNama?: string;
   transferredCount?: number;
+  targetType?: TransferNilaiTargetType;
+  nilaiAkhirMap?: Record<string, number>;
+};
+
+export type TarikNilaiAkhirResult = {
+  success: boolean;
+  message: string;
+  scores?: Record<string, number>;
+  pulledCount?: number;
 };
 
 /**
- * Mentransfer hasil Nilai Konversi ke kolom Penilaian (TP, SLM, STS, atau SAS)
- * pada Mata Pelajaran (Pembelajaran) yang dipilih serta menghitung ulang NilaiRapor.
+ * Menarik data Nilai Akhir (bilangan bulat) dari kelas & mata pelajaran yang diampu
+ * untuk langsung ditempatkan pada Kolom Nilai (Nilai Dasar) di menu Konversi Nilai.
+ */
+export async function tarikNilaiAkhirPembelajaranAction(
+  pembelajaranId: string
+): Promise<TarikNilaiAkhirResult> {
+  try {
+    const session = await requireAuth();
+    if (!pembelajaranId) {
+      return { success: false, message: "Pilih Mata Pelajaran terlebih dahulu." };
+    }
+
+    await assertPembelajaranAccess(session, pembelajaranId);
+
+    const pembelajaran = await db.pembelajaran.findUnique({
+      where: { id: pembelajaranId },
+      include: {
+        mapel: true,
+        rombel: { include: { anggota: true } },
+        penilaian: {
+          include: { nilai: true },
+          orderBy: [{ kategori: "asc" }, { urutan: "asc" }],
+        },
+        nilaiRapor: true,
+      },
+    });
+
+    if (!pembelajaran) {
+      return { success: false, message: "Data pembelajaran mata pelajaran tidak ditemukan." };
+    }
+
+    const raporBySiswa = new Map(
+      pembelajaran.nilaiRapor.map((nr) => [nr.siswaId, nr])
+    );
+
+    const scores: Record<string, number> = {};
+    let pulledCount = 0;
+
+    for (const agg of pembelajaran.rombel.anggota) {
+      const nr = raporBySiswa.get(agg.siswaId);
+
+      // Hitung juga dari komponen penilaian jika ada
+      const harianScores: (number | null)[] = [];
+      const slmScores: (number | null)[] = [];
+      const utsScores: (number | null)[] = [];
+      const uasScores: (number | null)[] = [];
+
+      for (const pen of pembelajaran.penilaian) {
+        const nv = pen.nilai.find((item) => item.siswaId === agg.siswaId);
+        const val = nv && nv.nilai !== null ? Number(nv.nilai) : null;
+        if (val === null) continue;
+        if (pen.kategori === "HARIAN") harianScores.push(val);
+        else if (pen.kategori === "SLM") slmScores.push(val);
+        else if (pen.kategori === "UTS") utsScores.push(val);
+        else if (pen.kategori === "UAS") uasScores.push(val);
+      }
+
+      const calc = hitungNilaiAkhirLengkap(
+        {
+          harian: harianScores,
+          slm: slmScores,
+          uts: utsScores,
+          uas: uasScores,
+        },
+        {
+          bobotHarian: pembelajaran.bobotHarian,
+          bobotUts: pembelajaran.bobotUts,
+          bobotUas: pembelajaran.bobotUas,
+        }
+      );
+
+      let nilaiAkhirBulat: number | null = null;
+      if (nr?.isOverride && nr.nilaiAkhir !== null && nr.nilaiAkhir !== undefined) {
+        nilaiAkhirBulat = Math.round(Number(nr.nilaiAkhir));
+      } else if (calc.nilaiAkhir !== null) {
+        nilaiAkhirBulat = Math.round(calc.nilaiAkhir);
+      } else if (nr?.nilaiAkhir !== null && nr?.nilaiAkhir !== undefined) {
+        nilaiAkhirBulat = Math.round(Number(nr.nilaiAkhir));
+      }
+
+      if (nilaiAkhirBulat !== null) {
+        scores[agg.siswaId] = nilaiAkhirBulat;
+        pulledCount++;
+      }
+    }
+
+    if (pulledCount === 0) {
+      return {
+        success: false,
+        message: `Belum ada data Nilai Akhir pada mata pelajaran ${pembelajaran.mapel.kode} (${pembelajaran.mapel.nama}) di Kelas ${pembelajaran.rombel.nama}.`,
+      };
+    }
+
+    return {
+      success: true,
+      message: `Berhasil menarik ${pulledCount} Nilai Akhir dari mata pelajaran ${pembelajaran.mapel.kode} (${pembelajaran.mapel.nama}) — Kelas ${pembelajaran.rombel.nama} ke Kolom Nilai Dasar & langsung dikonversi!`,
+      scores,
+      pulledCount,
+    };
+  } catch (err: unknown) {
+    console.error("[tarikNilaiAkhirPembelajaranAction Error]:", err);
+    return {
+      success: false,
+      message: err instanceof Error ? err.message : "Gagal menarik Nilai Akhir.",
+    };
+  }
+}
+
+/**
+ * Mentransfer hasil Nilai Konversi ke kolom Penilaian (TP, SLM, STS, SAS)
+ * atau langsung ke Nilai Akhir pada Mata Pelajaran (Pembelajaran) yang dipilih.
  */
 export async function transferNilaiKonversiAction(
   payload: TransferNilaiKonversiPayload
@@ -522,8 +681,11 @@ export async function transferNilaiKonversiAction(
       return { success: false, message: "Pilih Mata Pelajaran tujuan terlebih dahulu." };
     }
 
-    if (!targetType || !["TP", "SLM", "STS", "SAS"].includes(targetType)) {
-      return { success: false, message: "Target kolom penilaian (TP/SLM/STS/SAS) tidak valid." };
+    if (!targetType || !["TP", "SLM", "STS", "SAS", "NILAI_AKHIR"].includes(targetType)) {
+      return {
+        success: false,
+        message: "Target kolom penilaian (TP/SLM/STS/SAS/Nilai Akhir) tidak valid.",
+      };
     }
 
     const scoreEntries = Object.entries(scores || {}).filter(
@@ -558,7 +720,11 @@ export async function transferNilaiKonversiAction(
       include: {
         mapel: true,
         rombel: { include: { anggota: true } },
-        penilaian: { orderBy: { urutan: "asc" } },
+        penilaian: {
+          include: { nilai: true },
+          orderBy: { urutan: "asc" },
+        },
+        nilaiRapor: true,
       },
     });
 
@@ -566,7 +732,134 @@ export async function transferNilaiKonversiAction(
       return { success: false, message: "Data pembelajaran mata pelajaran tidak ditemukan." };
     }
 
-    const kategoriMap: Record<TransferNilaiTargetType, KategoriPenilaianInput> = {
+    const allowedSiswaIds = new Set(pembelajaran.rombel.anggota.map((a) => a.siswaId));
+
+    // =========================================================================
+    // CABANG 1: TRANSFER LANGSUNG KE NILAI AKHIR (BILANGAN BULAT)
+    // =========================================================================
+    if (targetType === "NILAI_AKHIR") {
+      const masterTps = await db.tujuanPembelajaran.findMany({
+        where: {
+          semesterId: pembelajaran.semesterId,
+          tingkat: pembelajaran.rombel.tingkat,
+          mapelId: pembelajaran.mapelId,
+        },
+        orderBy: [{ urutan: "asc" }, { kodeTp: "asc" }],
+      });
+
+      const kktp = pembelajaran.kktp ?? 75;
+      let transferredCount = 0;
+      const nilaiAkhirMap: Record<string, number> = {};
+
+      for (const [siswaId, rawVal] of scoreEntries) {
+        if (!allowedSiswaIds.has(siswaId)) continue;
+        // Nilai Akhir selalu bilangan bulat
+        const cleanNilaiAkhir = Math.round(rawVal);
+        nilaiAkhirMap[siswaId] = cleanNilaiAkhir;
+
+        // Pertahankan rata-rata komponen & deskripsi TP jika ada
+        const harianScores: (number | null)[] = [];
+        const slmScores: (number | null)[] = [];
+        const utsScores: (number | null)[] = [];
+        const uasScores: (number | null)[] = [];
+        const tpEntries: TpScoreEntry[] = [];
+
+        for (const pen of pembelajaran.penilaian) {
+          const nv = pen.nilai.find((item) => item.siswaId === siswaId);
+          const val = nv && nv.nilai !== null ? Number(nv.nilai) : null;
+          if (val === null) continue;
+
+          if (pen.kategori === "HARIAN") {
+            harianScores.push(val);
+            tpEntries.push({
+              kode: pen.nama,
+              deskripsi: resolveTpDeskripsiText(pen, masterTps),
+              nilai: val,
+            });
+          } else if (pen.kategori === "SLM") {
+            slmScores.push(val);
+          } else if (pen.kategori === "UTS") {
+            utsScores.push(val);
+          } else if (pen.kategori === "UAS") {
+            uasScores.push(val);
+          }
+        }
+
+        const calc = hitungNilaiAkhirLengkap(
+          {
+            harian: harianScores,
+            slm: slmScores,
+            uts: utsScores,
+            uas: uasScores,
+          },
+          {
+            bobotHarian: pembelajaran.bobotHarian,
+            bobotUts: pembelajaran.bobotUts,
+            bobotUas: pembelajaran.bobotUas,
+          }
+        );
+
+        const desc = buildDeskripsiCapaianTp(tpEntries, kktp);
+
+        await db.nilaiRapor.upsert({
+          where: {
+            pembelajaranId_siswaId: {
+              pembelajaranId,
+              siswaId,
+            },
+          },
+          update: {
+            rataHarian: calc.rataHarian,
+            rataSlm: calc.rataSlm,
+            nilaiUts: calc.nilaiUts,
+            nilaiUas: calc.nilaiUas,
+            nilaiAkhir: cleanNilaiAkhir,
+            isOverride: true,
+            ...(tpEntries.length > 0
+              ? {
+                  capaianTertinggi: desc.capaianTertinggi,
+                  capaianTerendah: desc.capaianTerendah,
+                }
+              : {}),
+          },
+          create: {
+            pembelajaranId,
+            siswaId,
+            rataHarian: calc.rataHarian,
+            rataSlm: calc.rataSlm,
+            nilaiUts: calc.nilaiUts,
+            nilaiUas: calc.nilaiUas,
+            nilaiAkhir: cleanNilaiAkhir,
+            isOverride: true,
+            capaianTertinggi: desc.capaianTertinggi,
+            capaianTerendah: desc.capaianTerendah,
+          },
+        });
+        transferredCount++;
+      }
+
+      revalidatePath("/guru/konversi-nilai");
+      revalidatePath(`/guru/nilai/${pembelajaranId}`);
+      revalidatePath("/guru/kelas");
+      revalidatePath("/guru/leger");
+      revalidatePath("/guru/ekspor");
+      revalidatePath("/admin/leger");
+      revalidatePath("/admin/statistik");
+
+      return {
+        success: true,
+        message: `Berhasil mentransfer ${transferredCount} Nilai Konversi langsung ke Nilai Akhir mata pelajaran ${pembelajaran.mapel.kode} (${pembelajaran.mapel.nama}) pada Kelas ${pembelajaran.rombel.nama}!`,
+        kolomNama: "Nilai Akhir",
+        transferredCount,
+        targetType: "NILAI_AKHIR",
+        nilaiAkhirMap,
+      };
+    }
+
+    // =========================================================================
+    // CABANG 2: TRANSFER KE KOLOM KOMPONEN (TP / SLM / STS / SAS)
+    // =========================================================================
+    const kategoriMap: Record<"TP" | "SLM" | "STS" | "SAS", KategoriPenilaianInput> = {
       TP: "HARIAN",
       SLM: "SLM",
       STS: "UTS",
@@ -587,7 +880,6 @@ export async function transferNilaiKonversiAction(
       ).trim();
 
       if (targetType === "STS" || targetType === "SAS") {
-        // Gunakan kolom STS/SAS yang sudah ada, atau cari berdasarkan nama
         targetPenilaian =
           pembelajaran.penilaian.find(
             (p) =>
@@ -612,7 +904,7 @@ export async function transferNilaiKonversiAction(
         });
         const nextUrutan = (lastSameKat?.urutan || 0) + 1;
 
-        targetPenilaian = await db.penilaian.create({
+        const created = await db.penilaian.create({
           data: {
             pembelajaranId,
             kategori: targetKategori,
@@ -621,25 +913,30 @@ export async function transferNilaiKonversiAction(
             tujuanPembelajaran:
               targetType === "TP" ? payload.tujuanPembelajaranText?.trim() || null : null,
           },
+          include: { nilai: true },
         });
+        targetPenilaian = created;
       } else if (
         targetType === "TP" &&
         payload.tujuanPembelajaranText?.trim() &&
         !targetPenilaian.tujuanPembelajaran
       ) {
-        targetPenilaian = await db.penilaian.update({
+        const updated = await db.penilaian.update({
           where: { id: targetPenilaian.id },
           data: { tujuanPembelajaran: payload.tujuanPembelajaranText.trim() },
+          include: { nilai: true },
         });
+        targetPenilaian = updated;
       }
     }
 
-    const allowedSiswaIds = new Set(pembelajaran.rombel.anggota.map((a) => a.siswaId));
     let transferredCount = 0;
+    const resetOverrideSiswaIds = new Set<string>();
 
     for (const [siswaId, rawVal] of scoreEntries) {
       if (!allowedSiswaIds.has(siswaId)) continue;
       const cleanVal = Math.round(rawVal * 100) / 100;
+      resetOverrideSiswaIds.add(siswaId);
 
       await db.nilai.upsert({
         where: {
@@ -662,7 +959,7 @@ export async function transferNilaiKonversiAction(
       transferredCount++;
     }
 
-    await recalculateNilaiRaporPembelajaran(pembelajaranId);
+    await recalculateNilaiRaporPembelajaran(pembelajaranId, resetOverrideSiswaIds);
 
     revalidatePath("/guru/konversi-nilai");
     revalidatePath(`/guru/nilai/${pembelajaranId}`);
@@ -678,6 +975,7 @@ export async function transferNilaiKonversiAction(
       penilaianId: targetPenilaian.id,
       kolomNama: targetPenilaian.nama,
       transferredCount,
+      targetType,
     };
   } catch (err: unknown) {
     console.error("[transferNilaiKonversiAction Error]:", err);

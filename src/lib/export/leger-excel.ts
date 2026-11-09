@@ -78,7 +78,7 @@ export async function buildLegerWorkbook(
 
     nilaiRaporList.forEach((nr) => {
       if (nr.nilaiAkhir !== null) {
-        nilaiMap.set(nr.siswaId, Number(nr.nilaiAkhir));
+        nilaiMap.set(nr.siswaId, Math.round(Number(nr.nilaiAkhir)));
       }
       const savedDesc = [nr.capaianTertinggi, nr.capaianTerendah]
         .filter((s): s is string => Boolean(s && s.trim()))
@@ -356,7 +356,7 @@ export async function buildLegerWorkbook(
   const nilaiMap = new Map<string, number>();
   nilaiRaporList.forEach((nr) => {
     if (nr.nilaiAkhir !== null) {
-      nilaiMap.set(`${nr.siswaId}_${nr.pembelajaranId}`, Number(nr.nilaiAkhir));
+      nilaiMap.set(`${nr.siswaId}_${nr.pembelajaranId}`, Math.round(Number(nr.nilaiAkhir)));
     }
   });
 

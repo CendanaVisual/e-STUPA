@@ -34,6 +34,7 @@ export default async function InputNilaiPage(props: {
       mapel: true,
       semester: { include: { tahunAjaran: true } },
       penilaian: { orderBy: [{ urutan: "asc" }] },
+      nilaiRapor: true,
       rombel: {
         include: {
           anggota: {
@@ -86,6 +87,19 @@ export default async function InputNilaiPage(props: {
     nama: agg.siswa.nama,
   }));
 
+  const initialNilaiRaporMap: Record<
+    string,
+    { nilaiAkhir: number; isOverride: boolean }
+  > = {};
+  p.nilaiRapor.forEach((nr) => {
+    if (nr.nilaiAkhir !== null) {
+      initialNilaiRaporMap[nr.siswaId] = {
+        nilaiAkhir: Math.round(Number(nr.nilaiAkhir)),
+        isOverride: Boolean(nr.isOverride),
+      };
+    }
+  });
+
   return (
     <InputNilaiClient
       pembelajaran={{
@@ -103,6 +117,7 @@ export default async function InputNilaiPage(props: {
       penilaianList={penilaianItems}
       anggotaList={anggotaItems}
       initialScores={initialScores}
+      initialNilaiRaporMap={initialNilaiRaporMap}
     />
   );
 }

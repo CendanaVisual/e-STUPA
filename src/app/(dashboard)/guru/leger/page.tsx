@@ -146,7 +146,7 @@ export default async function GuruLegerPage(props: {
   nilaiRaporList.forEach((nr) => {
     const key = `${nr.siswaId}_${nr.pembelajaranId}`;
     if (nr.nilaiAkhir !== null) {
-      nilaiMap[key] = Number(nr.nilaiAkhir);
+      nilaiMap[key] = Math.round(Number(nr.nilaiAkhir));
     }
     const combinedSaved = [nr.capaianTertinggi, nr.capaianTerendah]
       .filter((s): s is string => Boolean(s && s.trim()))

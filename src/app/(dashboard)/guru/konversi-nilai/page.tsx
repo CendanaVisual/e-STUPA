@@ -1,16 +1,18 @@
 import { db } from "@/lib/db";
 import { requireRole } from "@/lib/auth/session";
 import { getSemesterAktif } from "@/lib/services/semester";
+import { hitungNilaiAkhirLengkap } from "@/lib/grading/calc";
 import KonversiNilaiClient, {
   type RombelKonversiOption,
 } from "./konversi-nilai-client";
 
 export default async function GuruKonversiNilaiPage(props: {
-  searchParams?: Promise<{ rombelId?: string }>;
+  searchParams?: Promise<{ rombelId?: string; pembelajaranId?: string }>;
 }) {
   const session = await requireRole("GURU");
   const sp = props?.searchParams ? await props.searchParams : {};
   const requestedRombelId = sp?.rombelId || "";
+  const requestedPembelajaranId = sp?.pembelajaranId || "";
 
   const [user, activeSemester] = await Promise.all([
     db.user.findUnique({
@@ -61,14 +63,22 @@ export default async function GuruKonversiNilaiPage(props: {
                   },
                 },
                 penilaian: {
-                  select: {
-                    id: true,
-                    kategori: true,
-                    urutan: true,
-                    nama: true,
-                    tujuanPembelajaran: true,
+                  include: {
+                    nilai: {
+                      select: {
+                        siswaId: true,
+                        nilai: true,
+                      },
+                    },
                   },
                   orderBy: [{ urutan: "asc" }],
+                },
+                nilaiRapor: {
+                  select: {
+                    siswaId: true,
+                    nilaiAkhir: true,
+                    isOverride: true,
+                  },
                 },
               },
               orderBy: [{ mapel: { urutan: "asc" } }, { mapel: { nama: "asc" } }],
@@ -108,14 +118,22 @@ export default async function GuruKonversiNilaiPage(props: {
               },
             },
             penilaian: {
-              select: {
-                id: true,
-                kategori: true,
-                urutan: true,
-                nama: true,
-                tujuanPembelajaran: true,
+              include: {
+                nilai: {
+                  select: {
+                    siswaId: true,
+                    nilai: true,
+                  },
+                },
               },
               orderBy: [{ urutan: "asc" }],
+            },
+            nilaiRapor: {
+              select: {
+                siswaId: true,
+                nilaiAkhir: true,
+                isOverride: true,
+              },
             },
           },
           orderBy: [{ mapel: { urutan: "asc" } }, { mapel: { nama: "asc" } }],
@@ -199,11 +217,66 @@ export default async function GuruKonversiNilaiPage(props: {
           nama: col.nama,
         }));
 
+        // Susun peta Nilai Akhir (bilangan bulat) per siswa untuk fitur "Tarik Nilai Akhir"
+        const raporBySiswa = new Map(p.nilaiRapor.map((nr) => [nr.siswaId, nr]));
+        const nilaiAkhirMap: Record<string, number> = {};
+
+        for (const agg of r.anggota) {
+          const sId = agg.siswa.id;
+          const nr = raporBySiswa.get(sId);
+
+          const harianVals: (number | null)[] = [];
+          const slmVals: (number | null)[] = [];
+          const utsVals: (number | null)[] = [];
+          const uasVals: (number | null)[] = [];
+
+          for (const col of p.penilaian) {
+            const nv = col.nilai.find((item) => item.siswaId === sId);
+            const val = nv && nv.nilai !== null ? Number(nv.nilai) : null;
+            if (val === null) continue;
+            if (col.kategori === "HARIAN") harianVals.push(val);
+            else if (col.kategori === "SLM") slmVals.push(val);
+            else if (col.kategori === "UTS") utsVals.push(val);
+            else if (col.kategori === "UAS") uasVals.push(val);
+          }
+
+          const calc = hitungNilaiAkhirLengkap(
+            {
+              harian: harianVals,
+              slm: slmVals,
+              uts: utsVals,
+              uas: uasVals,
+            },
+            {
+              bobotHarian: p.bobotHarian,
+              bobotUts: p.bobotUts,
+              bobotUas: p.bobotUas,
+            }
+          );
+
+          if (nr?.isOverride && nr.nilaiAkhir !== null && nr.nilaiAkhir !== undefined) {
+            nilaiAkhirMap[sId] = Math.round(Number(nr.nilaiAkhir));
+          } else if (calc.nilaiAkhir !== null) {
+            nilaiAkhirMap[sId] = Math.round(calc.nilaiAkhir);
+          } else if (nr && nr.nilaiAkhir !== null && nr.nilaiAkhir !== undefined) {
+            nilaiAkhirMap[sId] = Math.round(Number(nr.nilaiAkhir));
+          }
+        }
+
         return {
           pembelajaranId: p.id,
           mapelId: p.mapel.id,
           mapelKode: p.mapel.kode,
           mapelNama: p.mapel.nama,
+          kktp: p.kktp ?? 75,
+          bobotHarian: p.bobotHarian,
+          bobotUts: p.bobotUts,
+          bobotUas: p.bobotUas,
+          penilaianCols: p.penilaian.map((col) => ({
+            id: col.id,
+            kategori: col.kategori,
+          })),
+          nilaiAkhirMap,
           tpOptions,
           slmOptions,
           stsOption: stsPenilaian
@@ -229,6 +302,7 @@ export default async function GuruKonversiNilaiPage(props: {
     <KonversiNilaiClient
       rombelOptions={rombelOptions}
       initialRombelId={requestedRombelId}
+      initialPembelajaranId={requestedPembelajaranId}
       semesterLabel={semesterLabel}
       semesterStatus={activeSemester?.status ?? "AKTIF"}
       guruNama={user?.gtk?.nama || session.nama || session.username}

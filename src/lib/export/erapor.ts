@@ -288,10 +288,12 @@ export async function buildEraporWorkbook(pembelajaranId: string) {
       (r?.nilaiUas !== null && r?.nilaiUas !== undefined ? Number(r.nilaiUas) : null);
 
     const nilaiAkhir: number | null =
-      calc.nilaiAkhir !== null
-        ? calc.nilaiAkhir
+      r?.isOverride && r.nilaiAkhir !== null && r.nilaiAkhir !== undefined
+        ? Math.round(Number(r.nilaiAkhir))
+        : calc.nilaiAkhir !== null
+        ? Math.round(calc.nilaiAkhir)
         : r?.nilaiAkhir !== null && r?.nilaiAkhir !== undefined
-        ? Number(r.nilaiAkhir)
+        ? Math.round(Number(r.nilaiAkhir))
         : null;
 
     let predikat = "";

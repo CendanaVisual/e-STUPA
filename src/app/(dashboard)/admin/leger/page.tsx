@@ -66,7 +66,7 @@ export default async function AdminLegerPage(props: {
   const nilaiMap: Record<string, number> = {};
   nilaiRaporList.forEach((nr) => {
     if (nr.nilaiAkhir !== null) {
-      nilaiMap[`${nr.siswaId}_${nr.pembelajaranId}`] = Number(nr.nilaiAkhir);
+      nilaiMap[`${nr.siswaId}_${nr.pembelajaranId}`] = Math.round(Number(nr.nilaiAkhir));
     }
   });
 
