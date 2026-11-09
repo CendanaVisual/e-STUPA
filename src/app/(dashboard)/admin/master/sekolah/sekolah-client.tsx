@@ -41,11 +41,11 @@ export function SekolahClient({ initialData }: SekolahClientProps) {
     kabupatenKota: initialData?.kabupatenKota || "Kota Denpasar",
     provinsi: initialData?.provinsi || "Bali",
     kodePos: initialData?.kodePos || "80222",
-    telepon: initialData?.telepon || "(0361) 720123",
+    telepon: initialData?.telepon ?? "",
     email: initialData?.email || "sdn7pedungan63@gmail.com",
-    website: initialData?.website || "",
-    namaKepsek: initialData?.namaKepsek || "Drs. I Made Sujana, M.Pd.",
-    nipKepsek: initialData?.nipKepsek || "196805121992031008",
+    website: initialData?.website ?? "",
+    namaKepsek: initialData?.namaKepsek ?? "",
+    nipKepsek: initialData?.nipKepsek ?? "",
     capTtdKepsekUrl: initialData?.capTtdKepsekUrl ?? null,
   });
 
@@ -443,7 +443,7 @@ export function SekolahClient({ initialData }: SekolahClientProps) {
                   type="text"
                   value={formData.telepon || ""}
                   onChange={(e) => handleChange("telepon", e.target.value)}
-                  placeholder="mis. (0361) 720123"
+                  placeholder="Masukkan nomor telepon sekolah"
                   className="w-full px-3.5 py-2.5 rounded-xl bg-white border border-slate-200 text-xs font-mono text-slate-800 font-semibold focus:outline-none focus:border-blue-500 shadow-xs"
                 />
               </div>
@@ -484,7 +484,7 @@ export function SekolahClient({ initialData }: SekolahClientProps) {
                   type="text"
                   value={formData.namaKepsek || ""}
                   onChange={(e) => handleChange("namaKepsek", e.target.value)}
-                  placeholder="mis. Drs. I Made Sujana, M.Pd."
+                  placeholder="Masukkan nama lengkap Kepala Sekolah beserta gelar"
                   className="w-full px-3.5 py-2.5 rounded-xl bg-white border border-slate-200 text-xs font-bold text-slate-800 focus:outline-none focus:border-blue-500 shadow-xs"
                 />
               </div>
@@ -497,7 +497,7 @@ export function SekolahClient({ initialData }: SekolahClientProps) {
                   type="text"
                   value={formData.nipKepsek || ""}
                   onChange={(e) => handleChange("nipKepsek", e.target.value)}
-                  placeholder="mis. 196805121992031008"
+                  placeholder="Masukkan NIP Kepala Sekolah (18 digit)"
                   className="w-full px-3.5 py-2.5 rounded-xl bg-white border border-slate-200 text-xs font-mono font-bold text-slate-800 focus:outline-none focus:border-blue-500 shadow-xs"
                 />
                 <p className="text-[10px] text-slate-400 mt-1">Kosongkan atau beri tanda strip (-) jika belum memiliki NIP.</p>

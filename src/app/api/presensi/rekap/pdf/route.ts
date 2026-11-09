@@ -238,7 +238,7 @@ export async function GET(req: Request) {
   <div class="kop-sekolah">
     <h2>PEMERINTAH KOTA DENPASAR • DINAS PENDIDIKAN KEPEMUDAAN DAN OLAHRAGA</h2>
     <h1>${(sekolah?.nama || "SD NEGERI 7 PEDUNGAN").toUpperCase()}</h1>
-    <p>${sekolah?.alamat || "Jl. Pulau Moyo No. 63 Pedungan"} • Telp: ${sekolah?.telepon || "(0361) 720123"} • Email: ${sekolah?.email || "sdn7pedungan63@gmail.com"}</p>
+    <p>${sekolah?.alamat || "Jl. Pulau Moyo No. 63 Pedungan"}${sekolah?.telepon ? ` • Telp: ${sekolah.telepon}` : ""} • Email: ${sekolah?.email || "sdn7pedungan63@gmail.com"}</p>
     <p>NPSN: ${sekolah?.npsn || "50103069"} • Kode Pos: ${sekolah?.kodePos || "80222"}</p>
   </div>
 
@@ -297,8 +297,8 @@ export async function GET(req: Request) {
         ${renderSignatureCellHtml({
           topLinesHtml: "Mengetahui,<br>Kepala Sekolah",
           signatureUrl: sekolah?.capTtdKepsekUrl,
-          signerName: sekolah?.namaKepsek || "Drs. I Made Sujana, M.Pd.",
-          signerNip: sekolah?.nipKepsek || "196805121992031008",
+          signerName: sekolah?.namaKepsek || "-",
+          signerNip: sekolah?.nipKepsek || "-",
           isCapKepsek: true,
           spaceHeightPx: 58,
         })}

@@ -13,8 +13,31 @@ async function main() {
     // Abaikan jika tabel belum ada atau constraint sudah terhapus
   }
 
-  // 1. DATA SEKOLAH (Jaga agar tetap singleton 1 baris sekolah)
+  // 1. DATA SEKOLAH (Jaga agar tetap singleton 1 baris sekolah & bersihkan data dummy)
+  const DUMMY_TELEPON_SET = new Set(["(0361) 720123", "(0361) 725176"]);
+  const DUMMY_KEPSEK_SET = new Set([
+    "Drs. I Made Sujana, M.Pd.",
+    "Made Wahyuni Indrawati, S.Pd.SD., M.Pd",
+  ]);
+  const DUMMY_NIP_KEPSEK_SET = new Set([
+    "196805121992031008",
+    "197011072007012031",
+  ]);
+
   const existingSekolah = await db.sekolah.findFirst();
+  const cleanTelepon =
+    existingSekolah?.telepon && !DUMMY_TELEPON_SET.has(existingSekolah.telepon.trim())
+      ? existingSekolah.telepon
+      : "";
+  const cleanNamaKepsek =
+    existingSekolah?.namaKepsek && !DUMMY_KEPSEK_SET.has(existingSekolah.namaKepsek.trim())
+      ? existingSekolah.namaKepsek
+      : "";
+  const cleanNipKepsek =
+    existingSekolah?.nipKepsek && !DUMMY_NIP_KEPSEK_SET.has(existingSekolah.nipKepsek.trim())
+      ? existingSekolah.nipKepsek
+      : "";
+
   const sekolahData = {
     npsn: existingSekolah?.npsn || "50103069",
     nama: existingSekolah?.nama || "SD Negeri 7 Pedungan",
@@ -25,10 +48,10 @@ async function main() {
     kabupatenKota: "Kota Denpasar",
     provinsi: "Bali",
     kodePos: "80222",
-    telepon: "(0361) 720123",
+    telepon: cleanTelepon,
     email: existingSekolah?.email || "sdn7pedungan63@gmail.com",
-    namaKepsek: "Drs. I Made Sujana, M.Pd.",
-    nipKepsek: "196805121992031008",
+    namaKepsek: cleanNamaKepsek,
+    nipKepsek: cleanNipKepsek,
   };
 
   const sekolah = existingSekolah
@@ -125,7 +148,6 @@ async function main() {
     { kode: "PJOK", nama: "Pendidikan Jasmani, Olahraga, dan Kesehatan", urutan: 6, kelompok: "Umum" },
     { kode: "SB", nama: "Seni dan Budaya", urutan: 7, kelompok: "Umum" },
     { kode: "BING", nama: "Bahasa Inggris", urutan: 8, kelompok: "Umum" },
-    { kode: "MULOK", nama: "Muatan Lokal (Bahasa Bali)", urutan: 9, kelompok: "Muatan Lokal" },
   ];
 
   for (const m of mapels) {
@@ -135,68 +157,63 @@ async function main() {
       create: { kode: m.kode, nama: m.nama, urutan: m.urutan, kelompok: m.kelompok, isAktif: true },
     });
   }
+
+  // Bersihkan mapel dummy MULOK (Muatan Lokal Bahasa Bali) dari database
+  try {
+    const dummyMulok = await db.mapel.findUnique({ where: { kode: "MULOK" } });
+    if (dummyMulok) {
+      const bbMapel = await db.mapel.findUnique({ where: { kode: "BB" } });
+      if (bbMapel) {
+        const mulokPembs = await db.pembelajaran.findMany({
+          where: { mapelId: dummyMulok.id },
+        });
+        for (const mp of mulokPembs) {
+          const existsInBb = await db.pembelajaran.findFirst({
+            where: {
+              semesterId: mp.semesterId,
+              rombelId: mp.rombelId,
+              mapelId: bbMapel.id,
+            },
+          });
+          if (!existsInBb) {
+            await db.pembelajaran.update({
+              where: { id: mp.id },
+              data: { mapelId: bbMapel.id },
+            });
+          } else {
+            await db.pembelajaran.delete({ where: { id: mp.id } });
+          }
+        }
+      } else {
+        await db.pembelajaran.deleteMany({ where: { mapelId: dummyMulok.id } });
+      }
+      await db.tujuanPembelajaran.deleteMany({ where: { mapelId: dummyMulok.id } });
+      await db.mapel.delete({ where: { id: dummyMulok.id } });
+      console.log("🧹 Mapel dummy MULOK (Muatan Lokal Bahasa Bali) berhasil dihapus");
+    }
+  } catch (err) {
+    console.warn("Peringatan saat membersihkan mapel dummy MULOK:", err);
+  }
   console.log(`✅ Mapel: ${mapels.length} mata pelajaran resmi`);
 
-  // 5. MASTER EKSTRAKURIKULER
-  const masterEkskul = [
-    {
-      nama: "Praja Muda Karana (Pramuka)",
-      kategori: "Kepanduan",
-      pembina: "Pembina Pramuka",
-      hari: "Jumat",
-      jam: "14:30 - 16:30",
-    },
-    {
-      nama: "Palang Merah Remaja (PMR)",
-      kategori: "Kemanusiaan / Kesehatan",
-      pembina: "Pembina PMR",
-      hari: "Sabtu",
-      jam: "08:00 - 10:00",
-    },
-    {
-      nama: "Seni Tari Tradisional Bali",
-      kategori: "Kesenian",
-      pembina: "Pembina Seni Tari",
-      hari: "Kamis",
-      jam: "15:00 - 17:00",
-    },
-    {
-      nama: "Futsal & Kebugaran Jasmani",
-      kategori: "Olahraga",
-      pembina: "Pembina Olahraga",
-      hari: "Rabu",
-      jam: "15:30 - 17:00",
-    },
-    {
-      nama: "Robotik & Koding Dasar",
-      kategori: "Sains",
-      pembina: "Pembina Sains",
-      hari: "Selasa",
-      jam: "14:00 - 15:30",
-    },
+  // 5. BERSIHKAN DATA DUMMY MASTER EKSTRAKURIKULER
+  const dummyEkskulNames = [
+    "Praja Muda Karana (Pramuka)",
+    "Palang Merah Remaja (PMR)",
+    "Seni Tari Tradisional Bali",
+    "Futsal & Kebugaran Jasmani",
+    "Robotik & Koding Dasar",
   ];
-
-  for (const e of masterEkskul) {
-    await db.ekstrakurikuler.upsert({
-      where: { nama: e.nama },
-      update: {
-        kategori: e.kategori,
-        pembina: e.pembina,
-        hari: e.hari,
-        jam: e.jam,
-        isAktif: true,
-      },
-      create: {
-        nama: e.nama,
-        kategori: e.kategori,
-        pembina: e.pembina,
-        hari: e.hari,
-        jam: e.jam,
-        isAktif: true,
-      },
+  try {
+    const deletedEkskul = await db.ekstrakurikuler.deleteMany({
+      where: { nama: { in: dummyEkskulNames } },
     });
+    if (deletedEkskul.count > 0) {
+      console.log(`🧹 Master Ekstrakurikuler: ${deletedEkskul.count} ekskul dummy berhasil dihapus`);
+    }
+  } catch (err) {
+    console.warn("Peringatan saat membersihkan ekskul dummy:", err);
   }
-  console.log(`✅ Master Ekstrakurikuler: ${masterEkskul.length} ekstrakurikuler aktif`);
 
   // 6. AGENDA KALENDER PENDIDIKAN
   const kalenderList = [

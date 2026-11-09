@@ -8,6 +8,7 @@ import {
   hapusKolomPenilaianAction,
   generateDefaultPenilaianAction,
   updateKktpDanBobotAction,
+  imporLembarPenilaianSiswaAction,
   type KategoriPenilaianInput,
 } from "@/server/actions/penilaian";
 import { hitungNilaiAkhirLengkap } from "@/lib/grading/calc";
@@ -133,6 +134,8 @@ export default function InputNilaiClient({
   // Form state Tambah Kolom Asesmen
   const [newKategori, setNewKategori] = useState<KategoriPenilaianInput>("HARIAN");
   const [newNamaKolom, setNewNamaKolom] = useState<string>("");
+  const importFileInputRef = useRef<HTMLInputElement | null>(null);
+  const [isImportingFile, setIsImportingFile] = useState<boolean>(false);
 
   // State Pengaturan Mandiri KKTP & Bobot Asesmen
   const [liveKktp, setLiveKktp] = useState<number>(pembelajaran.kktp);
@@ -579,6 +582,52 @@ export default function InputNilaiClient({
     });
   };
 
+  const handleImporLembarPenilaian = async (
+    e: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const file = e.target.files?.[0];
+    if (!file || isReadOnly) return;
+
+    setFeedback(null);
+    setIsImportingFile(true);
+
+    try {
+      const formData = new FormData();
+      formData.append("pembelajaranId", pembelajaran.id);
+      formData.append("file", file);
+
+      const res = await imporLembarPenilaianSiswaAction(formData);
+      if (res.success) {
+        if (typeof window !== "undefined") {
+          window.localStorage.removeItem(draftStorageKey);
+        }
+        if (res.updatedScores) {
+          setBaselineScores(res.updatedScores);
+          setScores(res.updatedScores);
+        }
+        setDraftSavedAt(null);
+        setRestoredDraftBanner(false);
+        setFeedback({ type: "success", message: res.message });
+        router.refresh();
+      } else {
+        setFeedback({ type: "error", message: res.message });
+      }
+    } catch (err: unknown) {
+      setFeedback({
+        type: "error",
+        message:
+          err instanceof Error
+            ? err.message
+            : "Gagal mengimpor berkas Lembar Penilaian Siswa.",
+      });
+    } finally {
+      setIsImportingFile(false);
+      if (importFileInputRef.current) {
+        importFileInputRef.current.value = "";
+      }
+    }
+  };
+
   const formattedDraftTime = useMemo(() => {
     if (!draftSavedAt) return null;
     try {
@@ -616,55 +665,99 @@ export default function InputNilaiClient({
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2.5">
-          {/* Tombol Edit Mandiri KKTP & Bobot Asesmen */}
-          {!isReadOnly && (
-            <button
-              type="button"
-              onClick={openPengaturanKktpModal}
-              disabled={isPending}
-              className="py-2.5 px-4 rounded-xl bg-white hover:bg-blue-50 border border-blue-200 text-blue-700 text-xs font-bold shadow-xs transition flex items-center gap-2 cursor-pointer"
-            >
-              <i className="fa-solid fa-sliders text-xs" />
-              <span>Atur KKTP &amp; Bobot</span>
-            </button>
-          )}
+        <div className="flex flex-col items-stretch sm:items-end gap-2">
+          <div className="flex flex-wrap items-center justify-end gap-2.5">
+            {/* Tombol Edit Mandiri KKTP & Bobot Asesmen */}
+            {!isReadOnly && (
+              <button
+                type="button"
+                onClick={openPengaturanKktpModal}
+                disabled={isPending || isImportingFile}
+                className="py-2.5 px-4 rounded-xl bg-white hover:bg-blue-50 border border-blue-200 text-blue-700 text-xs font-bold shadow-xs transition flex items-center gap-2 cursor-pointer"
+              >
+                <i className="fa-solid fa-sliders text-xs" />
+                <span>Atur KKTP &amp; Bobot</span>
+              </button>
+            )}
 
-          {/* Indikator Koneksi & Auto-Draft */}
-          <div
-            className={`px-3 py-2 rounded-xl border text-[11px] font-bold flex items-center gap-2 ${
-              !isOnline
-                ? "bg-rose-50 border-rose-200 text-rose-700"
-                : isDirty
-                ? "bg-amber-50 border-amber-200 text-amber-800"
-                : "bg-emerald-50 border-emerald-200 text-emerald-700"
-            }`}
-          >
-            <span
-              className={`w-2 h-2 rounded-full ${
+            {/* Indikator Koneksi & Auto-Draft */}
+            <div
+              className={`px-3 py-2 rounded-xl border text-[11px] font-bold flex items-center gap-2 ${
                 !isOnline
-                  ? "bg-rose-500 animate-pulse"
+                  ? "bg-rose-50 border-rose-200 text-rose-700"
                   : isDirty
-                  ? "bg-amber-500 animate-pulse"
-                  : "bg-emerald-500"
+                  ? "bg-amber-50 border-amber-200 text-amber-800"
+                  : "bg-emerald-50 border-emerald-200 text-emerald-700"
               }`}
-            />
-            <span>
-              {!isOnline
-                ? "Offline • Draft Lokal Aktif"
-                : isDirty
-                ? `Draft Otomatis${formattedDraftTime ? ` (${formattedDraftTime})` : ""} • ${dirtyCount} sel belum disimpan`
-                : "Tersimpan di Server"}
-            </span>
+            >
+              <span
+                className={`w-2 h-2 rounded-full ${
+                  !isOnline
+                    ? "bg-rose-500 animate-pulse"
+                    : isDirty
+                    ? "bg-amber-500 animate-pulse"
+                    : "bg-emerald-500"
+                }`}
+              />
+              <span>
+                {!isOnline
+                  ? "Offline • Draft Lokal Aktif"
+                  : isDirty
+                  ? `Draft Otomatis${formattedDraftTime ? ` (${formattedDraftTime})` : ""} • ${dirtyCount} sel belum disimpan`
+                  : "Tersimpan di Server"}
+              </span>
+            </div>
+
+            <a
+              href={`/api/guru/ekspor/${pembelajaran.id}`}
+              className="py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-md shadow-emerald-600/20 transition flex items-center gap-2 cursor-pointer"
+            >
+              <i className="fa-solid fa-file-excel text-sm" />
+              <span>Unduh Format E-Rapor (4 Sheet)</span>
+            </a>
           </div>
 
-          <a
-            href={`/api/guru/ekspor/${pembelajaran.id}`}
-            className="py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-md shadow-emerald-600/20 transition flex items-center gap-2 cursor-pointer"
-          >
-            <i className="fa-solid fa-file-excel text-sm" />
-            <span>Unduh Format E-Rapor (4 Sheet)</span>
-          </a>
+          {/* TOMBOL UNDUH TEMPLATE & IMPOR LEMBAR PENILAIAN SISWA (DI BAWAH UNDUH FORMAT E-RAPOR) */}
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <a
+              href={`/api/guru/nilai/${pembelajaran.id}/template`}
+              className="py-2 px-3.5 rounded-xl bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-700 text-xs font-bold shadow-xs transition flex items-center gap-2 cursor-pointer"
+              title="Unduh Template Excel Lembar Penilaian Siswa lengkap dengan TP, SLM, STS, dan SAS"
+            >
+              <i className="fa-solid fa-file-arrow-down text-xs" />
+              <span>Unduh Template Lembar Penilaian Siswa</span>
+            </a>
+
+            {!isReadOnly && (
+              <>
+                <input
+                  ref={importFileInputRef}
+                  type="file"
+                  accept=".xlsx,.xls"
+                  onChange={handleImporLembarPenilaian}
+                  className="hidden"
+                />
+                <button
+                  type="button"
+                  onClick={() => importFileInputRef.current?.click()}
+                  disabled={isPending || isImportingFile}
+                  className="py-2 px-3.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-sm shadow-indigo-600/20 transition flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                  title="Impor file Excel Lembar Penilaian Siswa untuk menyusun dan mengisi nilai secara otomatis"
+                >
+                  <i
+                    className={`fa-solid ${
+                      isImportingFile ? "fa-spinner fa-spin" : "fa-file-import"
+                    } text-xs`}
+                  />
+                  <span>
+                    {isImportingFile
+                      ? "Mengimpor Nilai..."
+                      : "Impor Lembar Penilaian Siswa"}
+                  </span>
+                </button>
+              </>
+            )}
+          </div>
         </div>
       </div>
 

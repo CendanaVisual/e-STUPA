@@ -534,7 +534,7 @@ export async function GET(req: Request) {
     <div class="kop-header">
       <h2>PEMERINTAH KOTA DENPASAR • DINAS PENDIDIKAN KEPEMUDAAN DAN OLAHRAGA</h2>
       <h1>${(sekolah?.nama || "SD NEGERI 7 PEDUNGAN").toUpperCase()}</h1>
-      <p>${sekolah?.alamat || "Jl. Pulau Moyo No. 63 Pedungan"} • Telp: ${sekolah?.telepon || "(0361) 720123"} • NPSN: ${sekolah?.npsn || "50103069"}</p>
+      <p>${sekolah?.alamat || "Jl. Pulau Moyo No. 63 Pedungan"}${sekolah?.telepon ? ` • Telp: ${sekolah.telepon}` : ""} • NPSN: ${sekolah?.npsn || "50103069"}</p>
     </div>
 
     <div class="title-box">

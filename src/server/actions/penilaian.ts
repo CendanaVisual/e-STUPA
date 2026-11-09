@@ -1,5 +1,6 @@
 "use server";
 
+import ExcelJS from "exceljs";
 import { db } from "@/lib/db";
 import { requireAuth } from "@/lib/auth/session";
 import { assertPembelajaranAccess } from "@/lib/auth/rbac";
@@ -986,3 +987,587 @@ export async function transferNilaiKonversiAction(
     };
   }
 }
+
+export type ImporLembarPenilaianResult = {
+  success: boolean;
+  message: string;
+  updatedScores?: Record<string, string>;
+  importedStudentsCount?: number;
+  importedCellsCount?: number;
+  columnsCount?: number;
+};
+
+function extractCellString(val: ExcelJS.CellValue): string {
+  if (val === null || val === undefined) return "";
+  if (typeof val === "string") return val.trim();
+  if (typeof val === "number" || typeof val === "boolean") return String(val).trim();
+  if (typeof val === "object") {
+    if ("result" in val && val.result !== undefined && val.result !== null) {
+      return String(val.result).trim();
+    }
+    if ("richText" in val && Array.isArray(val.richText)) {
+      return val.richText
+        .map((rt) => rt.text || "")
+        .join("")
+        .trim();
+    }
+    if ("text" in val && typeof val.text === "string") {
+      return val.text.trim();
+    }
+  }
+  return "";
+}
+
+function extractCellNumber(val: ExcelJS.CellValue): number | null {
+  if (val === null || val === undefined) return null;
+  if (typeof val === "number") {
+    return Number.isFinite(val) ? val : null;
+  }
+  if (typeof val === "object" && "result" in val) {
+    const res = val.result;
+    if (typeof res === "number" && Number.isFinite(res)) return res;
+    if (typeof res === "string") {
+      const cleaned = res.trim().replace(",", ".");
+      if (!cleaned) return null;
+      const num = parseFloat(cleaned);
+      return Number.isFinite(num) ? num : null;
+    }
+    return null;
+  }
+  const str = extractCellString(val).replace(",", ".");
+  if (!str || str === "-" || str === "–") return null;
+  const parsed = parseFloat(str);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function normalizeColCodeForImport(raw: string): string {
+  return raw.trim().toUpperCase().replace(/[\s._-]+/g, "");
+}
+
+/**
+ * Mengimpor berkas Excel (.xlsx) Lembar Penilaian Siswa.
+ * Logika otomatis:
+ * 1. Menyusun (membuat/menyesuaikan urutan) kolom penilaian (TP, SLM, STS, SAS) beserta deskripsi TP.
+ * 2. Mengisi dan menempatkan seluruh nilai siswa ke lembar penilaian siswa di database & web.
+ * 3. Menghitung ulang Rata TP, Rata SLM, Nilai Akhir (Bilangan Bulat), dan Status.
+ */
+export async function imporLembarPenilaianSiswaAction(
+  formData: FormData
+): Promise<ImporLembarPenilaianResult> {
+  try {
+    const session = await requireAuth();
+    const pembelajaranId = String(formData.get("pembelajaranId") ?? "").trim();
+    const file = formData.get("file");
+
+    if (!pembelajaranId) {
+      return { success: false, message: "ID pembelajaran tidak valid." };
+    }
+    if (!file || !(file instanceof File)) {
+      return {
+        success: false,
+        message: "Pilih berkas Excel (.xlsx) lembar penilaian siswa terlebih dahulu.",
+      };
+    }
+
+    await assertPembelajaranAccess(session, pembelajaranId, { write: true });
+
+    const pembelajaran = await db.pembelajaran.findUnique({
+      where: { id: pembelajaranId },
+      include: {
+        mapel: true,
+        rombel: {
+          include: {
+            anggota: {
+              include: { siswa: true },
+              orderBy: [{ noAbsen: "asc" }, { siswa: { nama: "asc" } }],
+            },
+          },
+        },
+        penilaian: {
+          orderBy: [{ urutan: "asc" }],
+        },
+      },
+    });
+
+    if (!pembelajaran) {
+      return { success: false, message: "Data pembelajaran tidak ditemukan." };
+    }
+
+    const masterTps = await db.tujuanPembelajaran.findMany({
+      where: {
+        semesterId: pembelajaran.semesterId,
+        tingkat: pembelajaran.rombel.tingkat,
+        mapelId: pembelajaran.mapelId,
+      },
+      orderBy: [{ urutan: "asc" }, { kodeTp: "asc" }],
+    });
+
+    const tpDescByNormCode = new Map<string, string>();
+    for (const m of masterTps) {
+      if (m.kodeTp && m.tujuanPembelajaran) {
+        tpDescByNormCode.set(
+          normalizeColCodeForImport(m.kodeTp),
+          m.tujuanPembelajaran.trim()
+        );
+      }
+    }
+
+    const arrayBuffer = await file.arrayBuffer();
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(arrayBuffer);
+
+    if (wb.worksheets.length === 0) {
+      return {
+        success: false,
+        message: "Berkas Excel kosong atau tidak memiliki lembar kerja (worksheet).",
+      };
+    }
+
+    // Baca juga sheet Daftar_Tujuan_Pembelajaran atau Pengaturan_TP_Bobot jika ada di dalam file
+    const wsTpRef =
+      wb.getWorksheet("Daftar_Tujuan_Pembelajaran") ||
+      wb.getWorksheet("Pengaturan_TP_Bobot");
+    if (wsTpRef) {
+      wsTpRef.eachRow((row) => {
+        for (let c = 1; c <= Math.min(row.cellCount, 8); c++) {
+          const codeCandidate = extractCellString(row.getCell(c).value);
+          const descCandidate = extractCellString(row.getCell(c + 1).value);
+          if (
+            codeCandidate &&
+            descCandidate &&
+            /^TP[\s._-]?\d+/i.test(codeCandidate) &&
+            descCandidate.length >= 5 &&
+            descCandidate.toLowerCase() !== "tujuan pembelajaran"
+          ) {
+            tpDescByNormCode.set(
+              normalizeColCodeForImport(codeCandidate),
+              descCandidate
+            );
+          }
+        }
+      });
+    }
+
+    // Pilih worksheet utama Lembar Penilaian Siswa
+    const ws =
+      wb.getWorksheet("Lembar_Penilaian_Siswa") ||
+      wb.getWorksheet("Olah_Nilai_Rinci") ||
+      wb.worksheets[0];
+
+    if (!ws) {
+      return {
+        success: false,
+        message: "Lembar kerja penilaian tidak ditemukan di dalam berkas Excel.",
+      };
+    }
+
+    // Cari baris header tabel yang memuat kolom NISN dan Nama Siswa / Nama Peserta Didik
+    let headerRow1Idx = -1;
+    let nisnColIdx = -1;
+    let namaColIdx = -1;
+
+    for (let r = 1; r <= Math.min(ws.rowCount, 25); r++) {
+      const row = ws.getRow(r);
+      let foundNisn = -1;
+      let foundNama = -1;
+
+      for (let c = 1; c <= Math.min(row.cellCount, 30); c++) {
+        const txt = extractCellString(row.getCell(c).value).toLowerCase();
+        if (txt === "nisn") foundNisn = c;
+        if (
+          txt === "nama siswa" ||
+          txt === "nama peserta didik" ||
+          txt === "nama murid"
+        ) {
+          foundNama = c;
+        }
+      }
+
+      if (foundNisn !== -1 && foundNama !== -1) {
+        headerRow1Idx = r;
+        nisnColIdx = foundNisn;
+        namaColIdx = foundNama;
+        break;
+      }
+    }
+
+    if (headerRow1Idx === -1) {
+      return {
+        success: false,
+        message:
+          "Format header tabel tidak dikenali. Pastikan terdapat kolom 'NISN' dan 'Nama Siswa' (gunakan Template Lembar Penilaian Siswa).",
+      };
+    }
+
+    // Periksa apakah terdapat sub-header pada baris tepat di bawah headerRow1Idx (2-row header)
+    const row1 = ws.getRow(headerRow1Idx);
+    const row2 = ws.getRow(headerRow1Idx + 1);
+    const row2NisnTxt = extractCellString(row2.getCell(nisnColIdx).value).toLowerCase();
+    const row2NamaTxt = extractCellString(row2.getCell(namaColIdx).value).toLowerCase();
+
+    // Merupakan 2-row header apabila sel NISN/Nama pada baris kedua di-merge (sama dengan baris pertama atau kosong)
+    // dan bukan berisi NISN angka siswa
+    const isTwoRowHeader =
+      (row2NisnTxt === "" || row2NisnTxt === "nisn") &&
+      (row2NamaTxt === "" ||
+        row2NamaTxt === "nama siswa" ||
+        row2NamaTxt === "nama peserta didik");
+
+    const dataStartRowIdx = isTwoRowHeader ? headerRow1Idx + 2 : headerRow1Idx + 1;
+    const maxColIdx = Math.max(row1.cellCount, isTwoRowHeader ? row2.cellCount : 0);
+
+    // Daftar label kolom non-input (identitas atau hasil kalkulasi otomatis) yang harus dilewati
+    const IGNORED_COL_LABELS = new Set([
+      "no",
+      "id peserta didik (pd_id)",
+      "id peserta didik",
+      "pd_id",
+      "nis",
+      "nisn",
+      "nama siswa",
+      "nama peserta didik",
+      "nama murid",
+      "l/p",
+      "jk",
+      "jenis kelamin",
+      "rata tp",
+      "rata-rata tp",
+      "rata slm",
+      "rata-rata slm",
+      "rata sts",
+      "rata-rata sts",
+      "rata sas",
+      "rata-rata sas",
+      "nilai akhir",
+      "nilai akhir (rapor)",
+      "nilai akhir e-rapor",
+      "predikat",
+      "status",
+      "status kktp",
+      "status nilai",
+      "tp tertinggi (t)",
+      "tp terendah (r)",
+      "deskripsi capaian",
+      "deskripsi capaian kompetensi",
+      "identifikasi & deskripsi capaian tp",
+    ]);
+
+    interface ParsedAssessmentCol {
+      colNumber: number;
+      kategori: KategoriPenilaianInput;
+      nama: string;
+    }
+
+    const parsedCols: ParsedAssessmentCol[] = [];
+    let lastCarriedTopGroup = "";
+
+    for (let c = namaColIdx + 1; c <= maxColIdx; c++) {
+      const rawTop = extractCellString(row1.getCell(c).value);
+      if (rawTop) {
+        lastCarriedTopGroup = rawTop;
+      }
+      const topGroup = rawTop || lastCarriedTopGroup;
+      const subName = isTwoRowHeader
+        ? extractCellString(row2.getCell(c).value)
+        : "";
+
+      const effectiveName = (subName || rawTop).trim();
+      if (!effectiveName) continue;
+
+      const lowerEffective = effectiveName.toLowerCase();
+      const lowerTop = topGroup.toLowerCase();
+
+      if (IGNORED_COL_LABELS.has(lowerEffective)) {
+        continue;
+      }
+
+      // Berhenti atau lewati jika sudah masuk ke grup Nilai Akhir / Deskripsi
+      if (
+        lowerTop.includes("nilai akhir") ||
+        lowerTop.includes("identifikasi & deskripsi") ||
+        lowerEffective.startsWith("rata ") ||
+        lowerEffective.startsWith("rata-rata")
+      ) {
+        continue;
+      }
+
+      // Klasifikasikan kategori kolom: HARIAN (TP), SLM, UTS (STS), atau UAS (SAS)
+      let kategori: KategoriPenilaianInput = "HARIAN";
+      if (
+        /^slm\b/i.test(effectiveName) ||
+        lowerTop === "slm" ||
+        lowerTop.includes("sumatif lingkup materi") ||
+        lowerTop.includes("(slm)")
+      ) {
+        kategori = "SLM";
+      } else if (
+        /^sts\b/i.test(effectiveName) ||
+        /^uts\b/i.test(effectiveName) ||
+        lowerTop === "sts" ||
+        lowerTop.includes("tengah semester") ||
+        lowerTop.includes("(sts)")
+      ) {
+        kategori = "UTS";
+      } else if (
+        /^sas\b/i.test(effectiveName) ||
+        /^uas\b/i.test(effectiveName) ||
+        lowerTop === "sas" ||
+        lowerTop.includes("akhir semester") ||
+        lowerTop.includes("(sas)")
+      ) {
+        kategori = "UAS";
+      } else {
+        kategori = "HARIAN";
+      }
+
+      parsedCols.push({
+        colNumber: c,
+        kategori,
+        nama: effectiveName,
+      });
+    }
+
+    if (parsedCols.length === 0) {
+      return {
+        success: false,
+        message:
+          "Tidak ditemukan kolom penilaian (TP, SLM, STS, atau SAS) pada berkas Excel yang diunggah.",
+      };
+    }
+
+    // 1. SUSUN & SINKRONKAN KOLOM PENILAIAN DI DATABASE (db.penilaian)
+    const existingPenilaian = [...pembelajaran.penilaian];
+    const usedPenilaianIds = new Set<string>();
+    const urutanCounter: Record<KategoriPenilaianInput, number> = {
+      HARIAN: 0,
+      SLM: 0,
+      UTS: 0,
+      UAS: 0,
+    };
+
+    const resolvedCols: Array<{
+      colNumber: number;
+      penilaianId: string;
+      kategori: KategoriPenilaianInput;
+      nama: string;
+    }> = [];
+
+    for (const pc of parsedCols) {
+      urutanCounter[pc.kategori] += 1;
+      const desiredUrutan = urutanCounter[pc.kategori];
+      const normName = normalizeColCodeForImport(pc.nama);
+      const matchedTpDesc =
+        pc.kategori === "HARIAN" ? (tpDescByNormCode.get(normName) ?? null) : null;
+
+      // Cari kolom penilaian yang cocok pada kategori yang sama (atau khusus UTS/UAS ambil yang ada)
+      let matched =
+        existingPenilaian.find(
+          (ep) =>
+            !usedPenilaianIds.has(ep.id) &&
+            ep.kategori === pc.kategori &&
+            normalizeColCodeForImport(ep.nama) === normName
+        ) ?? null;
+
+      if (!matched && (pc.kategori === "UTS" || pc.kategori === "UAS")) {
+        matched =
+          existingPenilaian.find(
+            (ep) => !usedPenilaianIds.has(ep.id) && ep.kategori === pc.kategori
+          ) ?? null;
+      }
+
+      if (matched) {
+        usedPenilaianIds.add(matched.id);
+        await db.penilaian.update({
+          where: { id: matched.id },
+          data: {
+            nama: pc.nama,
+            urutan: desiredUrutan,
+            ...(matchedTpDesc && !matched.tujuanPembelajaran
+              ? { tujuanPembelajaran: matchedTpDesc }
+              : {}),
+          },
+        });
+        resolvedCols.push({
+          colNumber: pc.colNumber,
+          penilaianId: matched.id,
+          kategori: pc.kategori,
+          nama: pc.nama,
+        });
+      } else {
+        const created = await db.penilaian.create({
+          data: {
+            pembelajaranId,
+            kategori: pc.kategori,
+            urutan: desiredUrutan,
+            nama: pc.nama,
+            tujuanPembelajaran: matchedTpDesc,
+          },
+        });
+        usedPenilaianIds.add(created.id);
+        existingPenilaian.push(created);
+        resolvedCols.push({
+          colNumber: pc.colNumber,
+          penilaianId: created.id,
+          kategori: pc.kategori,
+          nama: pc.nama,
+        });
+      }
+    }
+
+    // 2. PETAKAN SISWA PADA ROMBEL KELAS INI (BERDASARKAN NISN & NAMA SISWA)
+    const siswaByNisn = new Map<string, string>();
+    const siswaByNama = new Map<string, string>();
+
+    for (const agg of pembelajaran.rombel.anggota) {
+      if (agg.siswa.nisn) {
+        siswaByNisn.set(agg.siswa.nisn.trim(), agg.siswaId);
+      }
+      if (agg.siswa.nama) {
+        siswaByNama.set(agg.siswa.nama.trim().toLowerCase(), agg.siswaId);
+      }
+    }
+
+    // 3. ISI DAN TEMPATKAN DATA NILAI KE LEMBAR PENILAIAN SISWA
+    let importedStudentsCount = 0;
+    let importedCellsCount = 0;
+    const resetOverrideSiswaIds = new Set<string>();
+
+    const FOOTER_STOP_PREFIXES = [
+      "rata-rata kelas",
+      "nilai tertinggi",
+      "nilai terendah",
+      "mengetahui",
+      "kepala sekolah",
+      "guru pengampu",
+    ];
+
+    for (let r = dataStartRowIdx; r <= ws.rowCount; r++) {
+      const row = ws.getRow(r);
+      const firstColTxt = extractCellString(row.getCell(1).value).toLowerCase();
+      const rawNisn = extractCellString(row.getCell(nisnColIdx).value);
+      const rawNama = extractCellString(row.getCell(namaColIdx).value);
+
+      if (
+        FOOTER_STOP_PREFIXES.some(
+          (prefix) =>
+            firstColTxt.startsWith(prefix) ||
+            rawNama.toLowerCase().startsWith(prefix)
+        )
+      ) {
+        break;
+      }
+
+      if (!rawNisn && !rawNama) continue;
+
+      const cleanNisn = rawNisn.replace(/\s+/g, "");
+      const matchedSiswaId =
+        (cleanNisn ? siswaByNisn.get(cleanNisn) : undefined) ??
+        (rawNama ? siswaByNama.get(rawNama.trim().toLowerCase()) : undefined);
+
+      if (!matchedSiswaId) continue;
+
+      let studentHasChange = false;
+
+      for (const rc of resolvedCols) {
+        const cellVal = row.getCell(rc.colNumber).value;
+        const numVal = extractCellNumber(cellVal);
+
+        if (numVal !== null && numVal >= 0 && numVal <= 100) {
+          const cleanVal = Math.round(numVal * 100) / 100;
+          await db.nilai.upsert({
+            where: {
+              penilaianId_siswaId: {
+                penilaianId: rc.penilaianId,
+                siswaId: matchedSiswaId,
+              },
+            },
+            update: {
+              nilai: cleanVal,
+              updatedById: session.userId,
+            },
+            create: {
+              penilaianId: rc.penilaianId,
+              siswaId: matchedSiswaId,
+              nilai: cleanVal,
+              updatedById: session.userId,
+            },
+          });
+          importedCellsCount++;
+          studentHasChange = true;
+        } else if (extractCellString(cellVal) === "") {
+          // Kosongkan sel jika di file Excel memang dikosongkan
+          await db.nilai.deleteMany({
+            where: {
+              penilaianId: rc.penilaianId,
+              siswaId: matchedSiswaId,
+            },
+          });
+          studentHasChange = true;
+        }
+      }
+
+      if (studentHasChange) {
+        importedStudentsCount++;
+        resetOverrideSiswaIds.add(matchedSiswaId);
+      }
+    }
+
+    if (importedStudentsCount === 0) {
+      return {
+        success: false,
+        message:
+          "Tidak ada baris siswa yang cocok dengan daftar siswa pada kelas ini. Pastikan NISN atau Nama Siswa sesuai.",
+      };
+    }
+
+    await recalculateNilaiRaporPembelajaran(pembelajaranId, resetOverrideSiswaIds);
+
+    // Ambil seluruh nilai terbaru untuk dikembalikan langsung ke state Lembar Penilaian Siswa di web
+    const allPenilaianAfter = await db.penilaian.findMany({
+      where: { pembelajaranId },
+      select: { id: true },
+    });
+    const allNilaiAfter =
+      allPenilaianAfter.length > 0
+        ? await db.nilai.findMany({
+            where: {
+              penilaianId: { in: allPenilaianAfter.map((p) => p.id) },
+            },
+          })
+        : [];
+
+    const updatedScores: Record<string, string> = {};
+    allNilaiAfter.forEach((n) => {
+      if (n.nilai !== null) {
+        updatedScores[`${n.penilaianId}_${n.siswaId}`] = String(Number(n.nilai));
+      }
+    });
+
+    revalidatePath(`/guru/nilai/${pembelajaranId}`);
+    revalidatePath("/guru/kelas");
+    revalidatePath("/guru/konversi-nilai");
+    revalidatePath("/guru/leger");
+    revalidatePath("/guru/ekspor");
+    revalidatePath("/admin/leger");
+    revalidatePath("/admin/statistik");
+
+    return {
+      success: true,
+      message: `Impor Lembar Penilaian Siswa berhasil! ${resolvedCols.length} kolom asesmen (TP, SLM, STS, SAS) telah disusun dan ${importedCellsCount} nilai dari ${importedStudentsCount} siswa telah ditempatkan ke Lembar Penilaian Siswa.`,
+      updatedScores,
+      importedStudentsCount,
+      importedCellsCount,
+      columnsCount: resolvedCols.length,
+    };
+  } catch (err: unknown) {
+    console.error("[imporLembarPenilaianSiswaAction Error]:", err);
+    return {
+      success: false,
+      message:
+        err instanceof Error
+          ? err.message
+          : "Gagal mengimpor berkas Lembar Penilaian Siswa.",
+    };
+  }
+}
+

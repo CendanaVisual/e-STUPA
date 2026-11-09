@@ -23,6 +23,22 @@ export default async function AdminMasterEkskulPage(props: {
 
   const taNama = activeSemester?.tahunAjaran?.nama ?? "2026/2027";
 
+  // Bersihkan 5 data dummy ekstrakurikuler dari database jika masih ada
+  const DUMMY_EKSKUL_NAMES = [
+    "Praja Muda Karana (Pramuka)",
+    "Palang Merah Remaja (PMR)",
+    "Seni Tari Tradisional Bali",
+    "Futsal & Kebugaran Jasmani",
+    "Robotik & Koding Dasar",
+  ];
+  try {
+    await db.ekstrakurikuler.deleteMany({
+      where: { nama: { in: DUMMY_EKSKUL_NAMES } },
+    });
+  } catch {
+    // Abaikan jika gagal
+  }
+
   const ekskulList = await db.ekstrakurikuler.findMany({
     orderBy: { nama: "asc" },
     include: {

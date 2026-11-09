@@ -305,7 +305,7 @@ export async function buildRekapPresensiWorkbook(rombelId: string) {
   const nameRow = signRowNum + 4;
   ws.getRow(nameRow).values = [
     "",
-    sekolah?.namaKepsek || "Drs. I Made Sujana, M.Pd.",
+    sekolah?.namaKepsek || "-",
     "",
     "",
     "",
@@ -323,7 +323,7 @@ export async function buildRekapPresensiWorkbook(rombelId: string) {
   const nipRow = nameRow + 1;
   ws.getRow(nipRow).values = [
     "",
-    `NIP. ${sekolah?.nipKepsek || "196805121992031008"}`,
+    `NIP. ${sekolah?.nipKepsek || "-"}`,
     "",
     "",
     "",
