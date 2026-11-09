@@ -28,7 +28,7 @@ export async function buildLegerWorkbook(
         },
       },
     }),
-    db.sekolah.findFirst(),
+    db.sekolah.findFirst({ orderBy: { updatedAt: "desc" } }),
     db.semester.findFirst({
       where: { isAktif: true },
       include: { tahunAjaran: true },
@@ -165,7 +165,7 @@ export async function buildLegerWorkbook(
     ws.getRow(1).height = 22;
 
     ws.mergeCells("A2:G2");
-    ws.getCell("A2").value = `${(sekolah?.nama || "SD NEGERI 7 PEDUNGAN").toUpperCase()} • NPSN: ${sekolah?.npsn || "50103069"}`;
+    ws.getCell("A2").value = `${(sekolah?.nama || "SD NEGERI 7 PEDUNGAN").toUpperCase()} • NPSN: ${sekolah?.npsn || "50103069"}${sekolah?.telepon ? ` • Telp: ${sekolah.telepon}` : ""}`;
     ws.getCell("A2").font = { name: "Arial", size: 10, bold: true, color: { argb: "FF334155" } };
     ws.getCell("A2").alignment = { horizontal: "center", vertical: "middle" };
     ws.getRow(2).height = 18;
@@ -442,7 +442,7 @@ export async function buildLegerWorkbook(
 
   ws.mergeCells(`A2:${lastColLetter}2`);
   const subTitleCell = ws.getCell("A2");
-  subTitleCell.value = `${(sekolah?.nama || "SD NEGERI 7 PEDUNGAN").toUpperCase()} • NPSN: ${sekolah?.npsn || "50103069"}`;
+  subTitleCell.value = `${(sekolah?.nama || "SD NEGERI 7 PEDUNGAN").toUpperCase()} • NPSN: ${sekolah?.npsn || "50103069"}${sekolah?.telepon ? ` • Telp: ${sekolah.telepon}` : ""}`;
   subTitleCell.font = { name: "Arial", size: 11, bold: true, color: { argb: "FF334155" } };
   subTitleCell.alignment = { horizontal: "center", vertical: "middle" };
   ws.getRow(2).height = 18;

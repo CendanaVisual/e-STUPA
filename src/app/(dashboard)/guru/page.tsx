@@ -58,7 +58,7 @@ export default async function GuruDashboard() {
               Selamat Datang, <span className="text-blue-700">{gtk?.nama ?? session.nama}</span>
             </h1>
             <p className="text-xs sm:text-sm text-slate-600 mt-1 max-w-xl">
-              Akses cepat pengisian nilai formatif/sumatif, rekapitulasi kehadiran murid, pembinaan kesiswaan, dan ekspor format resmi E-Rapor.
+              Akses cepat pengisian nilai sumatif, rekapitulasi kehadiran murid, pembinaan kesiswaan, dan ekspor format resmi E-Rapor.
             </p>
           </div>
         </div>
@@ -188,7 +188,7 @@ export default async function GuruDashboard() {
               Mata Pelajaran & Kelas yang Anda Ampu
             </h2>
             <p className="text-[11px] text-slate-400 font-medium">
-              Klik pada kartu mata pelajaran untuk membuka lembar pengisian nilai formatif/sumatif
+              Klik pada kartu mata pelajaran untuk membuka lembar pengisian nilai sumatif
             </p>
           </div>
         </div>
@@ -224,7 +224,7 @@ export default async function GuruDashboard() {
                     {p.mapel.nama}
                   </h3>
                   <p className="text-[11px] text-slate-500 mt-0.5">
-                    Bobot: Formatif {p.bobotHarian}% • STS {p.bobotUts}% • SAS {p.bobotUas}%
+                    Bobot: Sumatif {p.bobotHarian}% • STS {p.bobotUts}% • SAS {p.bobotUas}%
                   </p>
                 </div>
 

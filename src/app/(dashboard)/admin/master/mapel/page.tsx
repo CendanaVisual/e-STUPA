@@ -7,7 +7,14 @@ export default async function DataMapelPage() {
 
   let rawMapels: any[] = [];
   try {
-    // Pastikan mapel dummy MULOK (Muatan Lokal Bahasa Bali) bersih dari database
+    // Pastikan mapel dummy PAB (Pendidikan Agama dan Budi Pekerti) & MULOK bersih dari database
+    const dummyPab = await db.mapel.findUnique({ where: { kode: "PAB" } });
+    if (dummyPab) {
+      await db.pembelajaran.deleteMany({ where: { mapelId: dummyPab.id } });
+      await db.tujuanPembelajaran.deleteMany({ where: { mapelId: dummyPab.id } });
+      await db.mapel.delete({ where: { id: dummyPab.id } });
+    }
+
     const dummyMulok = await db.mapel.findUnique({ where: { kode: "MULOK" } });
     if (dummyMulok) {
       const bbMapel = await db.mapel.findUnique({ where: { kode: "BB" } });

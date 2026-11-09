@@ -13,18 +13,14 @@ async function main() {
     // Abaikan jika tabel belum ada atau constraint sudah terhapus
   }
 
-  // 1. DATA SEKOLAH (Jaga agar tetap singleton 1 baris sekolah & bersihkan data dummy)
-  const DUMMY_TELEPON_SET = new Set(["(0361) 720123", "(0361) 725176"]);
-  const DUMMY_KEPSEK_SET = new Set([
-    "Drs. I Made Sujana, M.Pd.",
-    "Made Wahyuni Indrawati, S.Pd.SD., M.Pd",
-  ]);
-  const DUMMY_NIP_KEPSEK_SET = new Set([
-    "196805121992031008",
-    "197011072007012031",
-  ]);
+  // 1. DATA SEKOLAH (Jaga agar tetap singleton 1 baris sekolah & bersihkan hanya data dummy lama)
+  const DUMMY_TELEPON_SET = new Set(["(0361) 720123"]);
+  const DUMMY_KEPSEK_SET = new Set(["Drs. I Made Sujana, M.Pd."]);
+  const DUMMY_NIP_KEPSEK_SET = new Set(["196805121992031008"]);
 
-  const existingSekolah = await db.sekolah.findFirst();
+  const existingSekolah = await db.sekolah.findFirst({
+    orderBy: { updatedAt: "desc" },
+  });
   const cleanTelepon =
     existingSekolah?.telepon && !DUMMY_TELEPON_SET.has(existingSekolah.telepon.trim())
       ? existingSekolah.telepon
@@ -41,13 +37,13 @@ async function main() {
   const sekolahData = {
     npsn: existingSekolah?.npsn || "50103069",
     nama: existingSekolah?.nama || "SD Negeri 7 Pedungan",
-    bentukPendidikan: "SD",
+    bentukPendidikan: existingSekolah?.bentukPendidikan || "SD",
     alamat: existingSekolah?.alamat || "Jl. Pulau Moyo No. 63 Pedungan",
-    desaKelurahan: "Pedungan",
-    kecamatan: "Denpasar Selatan",
-    kabupatenKota: "Kota Denpasar",
-    provinsi: "Bali",
-    kodePos: "80222",
+    desaKelurahan: existingSekolah?.desaKelurahan || "Pedungan",
+    kecamatan: existingSekolah?.kecamatan || "Denpasar Selatan",
+    kabupatenKota: existingSekolah?.kabupatenKota || "Kota Denpasar",
+    provinsi: existingSekolah?.provinsi || "Bali",
+    kodePos: existingSekolah?.kodePos || "80222",
     telepon: cleanTelepon,
     email: existingSekolah?.email || "sdn7pedungan63@gmail.com",
     namaKepsek: cleanNamaKepsek,
@@ -62,6 +58,11 @@ async function main() {
     : await db.sekolah.create({
         data: sekolahData,
       });
+
+  // Pastikan hanya ada 1 baris sekolah di database (singleton)
+  await db.sekolah.deleteMany({
+    where: { id: { not: sekolah.id } },
+  });
   console.log(`✅ Sekolah: ${sekolah.nama} (NPSN: ${sekolah.npsn})`);
 
   // 2. TAHUN AJARAN & SEMESTER
@@ -133,9 +134,8 @@ async function main() {
   });
   console.log(`✅ Superadmin: ${superadminUsername}`);
 
-  // 4. MATA PELAJARAN (MAPEL RESMI KURIKULUM MERDEKA)
+  // 4. MATA PELAJARAN (MAPEL RESMI KURIKULUM MERDEKA — TANPA DUMMY PAB & MULOK)
   const mapels = [
-    { kode: "PAB", nama: "Pendidikan Agama dan Budi Pekerti", urutan: 1, kelompok: "Agama" },
     { kode: "PAH", nama: "Pendidikan Agama Hindu dan Budi Pekerti", urutan: 1, kelompok: "Agama" },
     { kode: "PAI", nama: "Pendidikan Agama Islam dan Budi Pekerti", urutan: 1, kelompok: "Agama" },
     { kode: "PAK", nama: "Pendidikan Agama Kristen dan Budi Pekerti", urutan: 1, kelompok: "Agama" },
@@ -158,8 +158,16 @@ async function main() {
     });
   }
 
-  // Bersihkan mapel dummy MULOK (Muatan Lokal Bahasa Bali) dari database
+  // Bersihkan mapel dummy PAB (Pendidikan Agama dan Budi Pekerti) & MULOK dari database
   try {
+    const dummyPab = await db.mapel.findUnique({ where: { kode: "PAB" } });
+    if (dummyPab) {
+      await db.pembelajaran.deleteMany({ where: { mapelId: dummyPab.id } });
+      await db.tujuanPembelajaran.deleteMany({ where: { mapelId: dummyPab.id } });
+      await db.mapel.delete({ where: { id: dummyPab.id } });
+      console.log("🧹 Mapel dummy PAB (Pendidikan Agama dan Budi Pekerti) berhasil dihapus");
+    }
+
     const dummyMulok = await db.mapel.findUnique({ where: { kode: "MULOK" } });
     if (dummyMulok) {
       const bbMapel = await db.mapel.findUnique({ where: { kode: "BB" } });
@@ -192,7 +200,7 @@ async function main() {
       console.log("🧹 Mapel dummy MULOK (Muatan Lokal Bahasa Bali) berhasil dihapus");
     }
   } catch (err) {
-    console.warn("Peringatan saat membersihkan mapel dummy MULOK:", err);
+    console.warn("Peringatan saat membersihkan mapel dummy PAB/MULOK:", err);
   }
   console.log(`✅ Mapel: ${mapels.length} mata pelajaran resmi`);
 

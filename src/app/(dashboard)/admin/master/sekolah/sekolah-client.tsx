@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useTransition, useRef } from "react";
+import { useState, useTransition, useRef, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import {
   updateProfilSekolah,
   updateCapTtdKepsekAction,
@@ -31,6 +32,7 @@ interface SekolahClientProps {
 }
 
 export function SekolahClient({ initialData }: SekolahClientProps) {
+  const router = useRouter();
   const [formData, setFormData] = useState<SekolahData>({
     npsn: initialData?.npsn || "50103069",
     nama: initialData?.nama || "SD Negeri 7 Pedungan",
@@ -48,6 +50,29 @@ export function SekolahClient({ initialData }: SekolahClientProps) {
     nipKepsek: initialData?.nipKepsek ?? "",
     capTtdKepsekUrl: initialData?.capTtdKepsekUrl ?? null,
   });
+
+  useEffect(() => {
+    if (initialData) {
+      setFormData({
+        id: initialData.id,
+        npsn: initialData.npsn || "50103069",
+        nama: initialData.nama || "SD Negeri 7 Pedungan",
+        bentukPendidikan: initialData.bentukPendidikan || "SD",
+        alamat: initialData.alamat || "Jl. Pulau Moyo No. 63 Pedungan",
+        desaKelurahan: initialData.desaKelurahan || "Pedungan",
+        kecamatan: initialData.kecamatan || "Denpasar Selatan",
+        kabupatenKota: initialData.kabupatenKota || "Kota Denpasar",
+        provinsi: initialData.provinsi || "Bali",
+        kodePos: initialData.kodePos || "80222",
+        telepon: initialData.telepon ?? "",
+        email: initialData.email || "sdn7pedungan63@gmail.com",
+        website: initialData.website ?? "",
+        namaKepsek: initialData.namaKepsek ?? "",
+        nipKepsek: initialData.nipKepsek ?? "",
+        capTtdKepsekUrl: initialData.capTtdKepsekUrl ?? null,
+      });
+    }
+  }, [initialData]);
 
   const capFileInputRef = useRef<HTMLInputElement | null>(null);
   const [isProcessingCap, setIsProcessingCap] = useState(false);
@@ -87,7 +112,28 @@ export function SekolahClient({ initialData }: SekolahClientProps) {
       if (!res.success) {
         setFeedback({ type: "error", message: res.message });
       } else {
+        if (res.data) {
+          setFormData({
+            id: res.data.id,
+            npsn: res.data.npsn || "50103069",
+            nama: res.data.nama || "SD Negeri 7 Pedungan",
+            bentukPendidikan: res.data.bentukPendidikan || "SD",
+            alamat: res.data.alamat || "",
+            desaKelurahan: res.data.desaKelurahan || "",
+            kecamatan: res.data.kecamatan || "",
+            kabupatenKota: res.data.kabupatenKota || "",
+            provinsi: res.data.provinsi || "",
+            kodePos: res.data.kodePos || "",
+            telepon: res.data.telepon ?? "",
+            email: res.data.email || "",
+            website: res.data.website ?? "",
+            namaKepsek: res.data.namaKepsek ?? "",
+            nipKepsek: res.data.nipKepsek ?? "",
+            capTtdKepsekUrl: res.data.capTtdKepsekUrl ?? null,
+          });
+        }
         setFeedback({ type: "success", message: res.message });
+        router.refresh();
         window.scrollTo({ top: 0, behavior: "smooth" });
       }
     });

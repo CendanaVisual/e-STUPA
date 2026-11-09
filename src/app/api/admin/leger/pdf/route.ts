@@ -8,6 +8,8 @@ import {
 } from "@/lib/grading/calc";
 import { renderSignatureCellHtml } from "@/lib/export/signature-helper";
 
+export const dynamic = "force-dynamic";
+
 export async function GET(req: Request) {
   const session = await getSession();
   if (!session) {
@@ -38,7 +40,7 @@ export async function GET(req: Request) {
         },
       },
     }),
-    db.sekolah.findFirst(),
+    db.sekolah.findFirst({ orderBy: { updatedAt: "desc" } }),
     db.semester.findFirst({
       where: { isAktif: true },
       include: { tahunAjaran: true },
@@ -188,7 +190,7 @@ export async function GET(req: Request) {
     <div class="kop-header">
       <h2>PEMERINTAH KOTA DENPASAR • DINAS PENDIDIKAN KEPEMUDAAN DAN OLAHRAGA</h2>
       <h1>${(sekolah?.nama || "SD NEGERI 7 PEDUNGAN").toUpperCase()}</h1>
-      <p>${sekolah?.alamat || "Jl. Pulau Moyo No. 63 Pedungan"} • NPSN: ${sekolah?.npsn || "50103069"}</p>
+      <p>${sekolah?.alamat || "Jl. Pulau Moyo No. 63 Pedungan"}${sekolah?.telepon ? ` • Telp: ${sekolah.telepon}` : ""} • NPSN: ${sekolah?.npsn || "50103069"}</p>
     </div>
     <div class="title-box">
       <h3>LEGER NILAI MATA PELAJARAN ${targetP.mapel.nama.toUpperCase()} (${targetP.mapel.kode})</h3>

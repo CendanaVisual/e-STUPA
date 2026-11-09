@@ -92,14 +92,6 @@ const SPECIAL_MAPEL_META: Record<
     kelompok: "Umum",
     urutan: 1,
   },
-  PAB: {
-    codes: ["PAB"],
-    nameKeywords: ["Pendidikan Agama dan Budi Pekerti"],
-    defaultKode: "PAB",
-    defaultNama: "Pendidikan Agama dan Budi Pekerti",
-    kelompok: "Umum",
-    urutan: 1,
-  },
 };
 
 async function resolveOrEnsureMapel(rawTargetKode: string) {
@@ -140,7 +132,7 @@ async function resolveOrEnsureMapel(rawTargetKode: string) {
 /**
  * Tarik Nilai Khusus:
  * Menarik & mensinkronisasi nilai untuk mapel Mulok Bahasa Bali (BB / MULOK), PJOK,
- * dan 5 pilihan Pendidikan Agama (PAH, PAI, PAK, PAKAT, PABUD, PAB).
+ * dan 5 pilihan Pendidikan Agama (PAH, PAI, PAK, PAKAT, PABUD).
  */
 export async function tarikNilaiKhusus(
   rombelId: string,

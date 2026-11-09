@@ -252,7 +252,7 @@ export function KelasClient({ items }: { items: KelasPembelajaranItem[] }) {
                 <div className="grid grid-cols-3 gap-3">
                   <div>
                     <label className="block text-[11px] font-bold text-slate-600 mb-1">
-                      Formatif / TP (%)
+                      Sumatif / TP (%)
                     </label>
                     <input
                       type="number"

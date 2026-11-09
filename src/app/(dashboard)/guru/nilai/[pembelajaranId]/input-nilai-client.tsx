@@ -61,7 +61,7 @@ const KATEGORI_BADGE_MAP: Record<
   { label: string; badgeClass: string; thClass: string; placeholder: string }
 > = {
   HARIAN: {
-    label: "TP / Formatif",
+    label: "TP / Sumatif",
     badgeClass: "text-blue-600",
     thClass: "bg-blue-50/40",
     placeholder: "Nama kolom, mis. TP 3",
@@ -659,7 +659,7 @@ export default function InputNilaiClient({
             {pembelajaran.mapelNama} — {pembelajaran.rombelNama}
           </h1>
           <p className="text-xs text-slate-500 font-medium mt-0.5">
-            Bobot Asesmen: Formatif/TP {liveBobotHarian}% • SLM/STS{" "}
+            Bobot Asesmen: Sumatif/TP {liveBobotHarian}% • SLM/STS{" "}
             {liveBobotUts}% • SAS {liveBobotUas}% • KKTP {liveKktp}
             {isReadOnly && " • 🔒 Semester dikunci (read-only)"}
           </p>
@@ -845,7 +845,7 @@ export default function InputNilaiClient({
             disabled={isReadOnly || isPending}
             className="px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs font-bold text-slate-700 focus:outline-none focus:border-blue-500 cursor-pointer"
           >
-            <option value="HARIAN">Formatif / TP</option>
+            <option value="HARIAN">Sumatif / TP</option>
             <option value="SLM">SLM (Sumatif Lingkup Materi)</option>
             <option value="UTS">STS (Tengah Semester)</option>
             <option value="UAS">SAS (Akhir Semester)</option>
@@ -1113,7 +1113,7 @@ export default function InputNilaiClient({
                 <div className="grid grid-cols-3 gap-3">
                   <div>
                     <label className="block text-[11px] font-bold text-slate-600 mb-1">
-                      Formatif / TP (%)
+                      Sumatif / TP (%)
                     </label>
                     <input
                       type="number"

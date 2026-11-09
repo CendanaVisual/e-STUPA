@@ -385,14 +385,14 @@ export async function generateDefaultPenilaianAction(
             kategori: "HARIAN",
             urutan: 1,
             nama: "TP 1",
-            tujuanPembelajaran: "Formatif TP 1",
+            tujuanPembelajaran: "Sumatif TP 1",
           },
           {
             pembelajaranId,
             kategori: "HARIAN",
             urutan: 2,
             nama: "TP 2",
-            tujuanPembelajaran: "Formatif TP 2",
+            tujuanPembelajaran: "Sumatif TP 2",
           },
           { pembelajaranId, kategori: "SLM", urutan: 1, nama: "SLM 1" },
           { pembelajaranId, kategori: "UTS", urutan: 1, nama: "STS" },
@@ -1451,6 +1451,7 @@ export async function imporLembarPenilaianSiswaAction(
         FOOTER_STOP_PREFIXES.some(
           (prefix) =>
             firstColTxt.startsWith(prefix) ||
+            rawNisn.toLowerCase().startsWith(prefix) ||
             rawNama.toLowerCase().startsWith(prefix)
         )
       ) {

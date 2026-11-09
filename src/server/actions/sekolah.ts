@@ -7,6 +7,24 @@ import { requireRole } from "@/lib/auth/session";
 export type UpdateSekolahResponse = {
   success: boolean;
   message: string;
+  data?: {
+    id: string;
+    npsn: string;
+    nama: string;
+    bentukPendidikan: string | null;
+    alamat: string | null;
+    desaKelurahan: string | null;
+    kecamatan: string | null;
+    kabupatenKota: string | null;
+    provinsi: string | null;
+    kodePos: string | null;
+    telepon: string | null;
+    email: string | null;
+    website: string | null;
+    namaKepsek: string | null;
+    nipKepsek: string | null;
+    capTtdKepsekUrl: string | null;
+  };
 };
 
 export async function updateProfilSekolah(
@@ -112,37 +130,44 @@ export async function updateProfilSekolah(
     };
 
     // Ambil data sekolah yang sudah ada
-    const existing = await db.sekolah.findFirst();
+    const existing = await db.sekolah.findFirst({
+      orderBy: { updatedAt: "desc" },
+    });
 
+    let saved;
     if (existing) {
-      // Jika NPSN diubah, pastikan tidak ada baris sekolah lain yang memakai NPSN yang sama
-      if (existing.npsn !== npsn) {
-        await db.sekolah.deleteMany({
-          where: {
-            npsn,
-            id: { not: existing.id },
-          },
-        });
-      }
+      // Pastikan hanya ada 1 baris sekolah di database (hapus baris duplikat bila ada)
+      await db.sekolah.deleteMany({
+        where: {
+          id: { not: existing.id },
+        },
+      });
 
-      await db.sekolah.update({
+      saved = await db.sekolah.update({
         where: { id: existing.id },
         data: payload,
       });
     } else {
-      // Jika belum ada sekolah, bersihkan duplikat NPSN jika ada lalu buat baru
       await db.sekolah.deleteMany({ where: { npsn } });
-      await db.sekolah.create({
+      saved = await db.sekolah.create({
         data: payload,
       });
     }
 
+    revalidatePath("/", "layout");
     revalidatePath("/admin/master/sekolah");
     revalidatePath("/admin");
     revalidatePath("/admin/leger");
+    revalidatePath("/admin/presensi");
     revalidatePath("/guru/leger");
     revalidatePath("/guru/ekspor");
-    return { success: true, message: "Profil sekolah berhasil disimpan ke database!" };
+    revalidatePath("/guru/presensi");
+    return {
+      success: true,
+      message:
+        "Profil sekolah (termasuk Nomor Telepon, Nama Lengkap Kepala Sekolah, dan NIP Kepala Sekolah) berhasil disimpan ke database dan disinkronkan ke seluruh cetakan PDF/Excel!",
+      data: saved,
+    };
   } catch (err: unknown) {
     console.error("[updateProfilSekolah Error]:", err);
     return {

@@ -3,6 +3,8 @@ import { getSession } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { renderSignatureCellHtml } from "@/lib/export/signature-helper";
 
+export const dynamic = "force-dynamic";
+
 export async function GET(req: Request) {
   const session = await getSession();
   if (!session) {
@@ -28,7 +30,7 @@ export async function GET(req: Request) {
         },
       },
     }),
-    db.sekolah.findFirst(),
+    db.sekolah.findFirst({ orderBy: { updatedAt: "desc" } }),
     db.semester.findFirst({
       where: { isAktif: true },
       include: { tahunAjaran: true },

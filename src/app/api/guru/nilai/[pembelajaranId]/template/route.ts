@@ -3,6 +3,8 @@ import { getSession } from "@/lib/auth/session";
 import { assertPembelajaranAccess } from "@/lib/auth/rbac";
 import { buildLembarPenilaianTemplateWorkbook } from "@/lib/export/lembar-penilaian-template";
 
+export const dynamic = "force-dynamic";
+
 export async function GET(
   _req: Request,
   { params }: { params: Promise<{ pembelajaranId: string }> }

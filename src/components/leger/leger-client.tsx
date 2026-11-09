@@ -86,7 +86,6 @@ export default function LegerClient({
     { kode: "PAK", nama: "Pendidikan Agama Kristen dan Budi Pekerti (PAK)" },
     { kode: "PAKAT", nama: "Pendidikan Agama Katolik dan Budi Pekerti (PAKAT)" },
     { kode: "PABUD", nama: "Pendidikan Agama Buddha dan Budi Pekerti (PABUD)" },
-    { kode: "PAB", nama: "Pendidikan Agama dan Budi Pekerti Umum (PAB)" },
   ];
 
   // Susun urutan kolom mapel sesuai spesifikasi:

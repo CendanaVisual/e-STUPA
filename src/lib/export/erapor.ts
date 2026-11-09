@@ -175,7 +175,7 @@ export async function buildEraporWorkbook(pembelajaranId: string) {
         nilaiRapor: true,
       },
     }),
-    db.sekolah.findFirst(),
+    db.sekolah.findFirst({ orderBy: { updatedAt: "desc" } }),
   ]);
 
   if (!p) {
@@ -198,7 +198,9 @@ export async function buildEraporWorkbook(pembelajaranId: string) {
   const bobotUasPct = p.bobotUas ?? 25;
 
   const namaSekolah = sekolah?.nama ?? "SD Negeri 7 Pedungan";
-  const npsn = sekolah?.npsn ?? "50103069";
+  const npsn = sekolah?.telepon
+    ? `${sekolah?.npsn ?? "50103069"} • Telp: ${sekolah.telepon}`
+    : (sekolah?.npsn ?? "50103069");
   const tahunPelajaran = p.semester.tahunAjaran?.nama ?? "2026/2027";
   const semesterStr = `${p.semester.tipe === "GANJIL" ? "Ganjil (1)" : "Genap (2)"} - ${tahunPelajaran}`;
   const faseStr = getFaseByTingkat(p.rombel.tingkat);
@@ -545,7 +547,7 @@ export async function buildEraporWorkbook(pembelajaranId: string) {
     views: [{ showGridLines: true }],
   });
 
-  ws2.addRow(["LEMBAR PENGOLAHAN NILAI RINCI (FORMATIF / TP, SUMATIF LINGKUP MATERI, STS & SAS)"]);
+  ws2.addRow(["LEMBAR PENGOLAHAN NILAI RINCI (SUMATIF / TP, SUMATIF LINGKUP MATERI, STS & SAS)"]);
   ws2.addRow([
     "Menampilkan keseluruhan kolom pengelolaan nilai secara realtime sesuai data pada menu Kelas & Input Nilai (kosong apabila belum diinput).",
   ]);
@@ -587,7 +589,7 @@ export async function buildEraporWorkbook(pembelajaranId: string) {
 
   // Grup TP (+ Rata-rata TP)
   const tpGroupStart = ws2TopHeader.length + 1;
-  ws2TopHeader.push("Asesmen Formatif / Tujuan Pembelajaran (TP)");
+  ws2TopHeader.push("Asesmen Sumatif / Tujuan Pembelajaran (TP)");
   for (let i = 0; i < tpDisplayCols.length; i++) {
     if (i > 0) ws2TopHeader.push("");
     ws2SubHeader.push(tpDisplayCols[i]);
@@ -831,7 +833,7 @@ export async function buildEraporWorkbook(pembelajaranId: string) {
     "NPSN",
     npsn,
     "",
-    "Rata-rata Formatif / Tujuan Pembelajaran (TP)",
+    "Rata-rata Sumatif / Tujuan Pembelajaran (TP)",
     "BOBOT_TP",
     bobotHarianPct,
   ]);

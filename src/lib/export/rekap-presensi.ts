@@ -16,7 +16,7 @@ export async function buildRekapPresensiWorkbook(rombelId: string) {
         },
       },
     }),
-    db.sekolah.findFirst(),
+    db.sekolah.findFirst({ orderBy: { updatedAt: "desc" } }),
     db.semester.findFirst({
       where: { isAktif: true },
       include: { tahunAjaran: true },
@@ -90,7 +90,7 @@ export async function buildRekapPresensiWorkbook(rombelId: string) {
   // Nama Sekolah & Info
   ws.mergeCells("A2:J2");
   const subTitle = ws.getCell("A2");
-  subTitle.value = `${sekolah?.nama || "SD Negeri 7 Pedungan"} • NPSN: ${sekolah?.npsn || "50103069"}`;
+  subTitle.value = `${sekolah?.nama || "SD Negeri 7 Pedungan"} • NPSN: ${sekolah?.npsn || "50103069"}${sekolah?.telepon ? ` • Telp: ${sekolah.telepon}` : ""}`;
   subTitle.font = { name: "Arial", size: 11, bold: true, color: { argb: "FF475569" } };
   subTitle.alignment = { horizontal: "center", vertical: "middle" };
   ws.getRow(2).height = 20;

@@ -207,7 +207,7 @@ export default async function GuruKonversiNilaiPage(props: {
               })
             : harianPenilaian.map((col) => ({
                 kodeTp: col.nama,
-                deskripsi: col.tujuanPembelajaran || `Asesmen Formatif ${col.nama}`,
+                deskripsi: col.tujuanPembelajaran || `Asesmen Sumatif ${col.nama}`,
                 penilaianId: col.id,
               }));
 

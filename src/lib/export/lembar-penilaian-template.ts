@@ -55,7 +55,7 @@ export async function buildLembarPenilaianTemplateWorkbook(pembelajaranId: strin
         nilaiRapor: true,
       },
     }),
-    db.sekolah.findFirst(),
+    db.sekolah.findFirst({ orderBy: { updatedAt: "desc" } }),
   ]);
 
   if (!p) {
@@ -76,11 +76,17 @@ export async function buildLembarPenilaianTemplateWorkbook(pembelajaranId: strin
   const bobotUts = p.bobotUts ?? 25;
   const bobotUas = p.bobotUas ?? 25;
 
-  const namaSekolah = sekolah?.nama || "SD Negeri 7 Pedungan";
+  const namaSekolah = sekolah?.telepon
+    ? `${sekolah?.nama || "SD Negeri 7 Pedungan"} (Telp: ${sekolah.telepon})`
+    : sekolah?.nama || "SD Negeri 7 Pedungan";
   const tahunAjaran = p.semester?.tahunAjaran?.nama || "2026/2027";
   const semesterTipe = p.semester?.tipe || "GANJIL";
   const faseStr = getFaseByTingkat(p.rombel.tingkat);
   const guruNama = p.gtk?.nama || "Guru Pengampu";
+  const guruNip = p.gtk?.nip || p.gtk?.nuptk || "-";
+  const namaKepsek = sekolah?.namaKepsek || "-";
+  const nipKepsek = sekolah?.nipKepsek || "-";
+  const desaKelurahan = sekolah?.desaKelurahan || "Denpasar";
 
   // Kelompokkan kolom penilaian yang sudah ada di Lembar Penilaian Siswa
   const existingHarian = p.penilaian
@@ -96,7 +102,7 @@ export async function buildLembarPenilaianTemplateWorkbook(pembelajaranId: strin
     .filter((c) => c.kategori === "UAS")
     .sort((a, b) => a.urutan - b.urutan);
 
-  // 1. Susun Kolom TP (Formatif / TP)
+  // 1. Susun Kolom TP (Sumatif / TP)
   // Gabungkan kolom HARIAN yang ada di Lembar Penilaian dengan daftar Kode TP dari menu Tujuan Pembelajaran
   const tpCols: TemplateColumnSpec[] = [];
   const usedTpNorm = new Set<string>();
@@ -110,7 +116,7 @@ export async function buildLembarPenilaianTemplateWorkbook(pembelajaranId: strin
     tpCols.push({
       id: col.id,
       kategori: "HARIAN",
-      kategoriLabel: "TP / Formatif",
+      kategoriLabel: "TP / Sumatif",
       nama: col.nama,
       deskripsiTp:
         matchedMaster?.tujuanPembelajaran ||
@@ -127,7 +133,7 @@ export async function buildLembarPenilaianTemplateWorkbook(pembelajaranId: strin
       tpCols.push({
         id: null,
         kategori: "HARIAN",
-        kategoriLabel: "TP / Formatif",
+        kategoriLabel: "TP / Sumatif",
         nama: m.kodeTp,
         deskripsiTp: m.tujuanPembelajaran || "",
         lingkupMateri: m.ruangLingkupMateri || "",
@@ -140,7 +146,7 @@ export async function buildLembarPenilaianTemplateWorkbook(pembelajaranId: strin
       {
         id: null,
         kategori: "HARIAN",
-        kategoriLabel: "TP / Formatif",
+        kategoriLabel: "TP / Sumatif",
         nama: "TP 1",
         deskripsiTp: "",
         lingkupMateri: "",
@@ -148,7 +154,7 @@ export async function buildLembarPenilaianTemplateWorkbook(pembelajaranId: strin
       {
         id: null,
         kategori: "HARIAN",
-        kategoriLabel: "TP / Formatif",
+        kategoriLabel: "TP / Sumatif",
         nama: "TP 2",
         deskripsiTp: "",
         lingkupMateri: "",
@@ -282,7 +288,7 @@ export async function buildLembarPenilaianTemplateWorkbook(pembelajaranId: strin
     guruNama,
     "",
     "KKTP & Bobot",
-    `KKTP: ${kktp} | Formatif/TP: ${bobotHarian}% • SLM/STS: ${bobotUts}% • SAS: ${bobotUas}%`,
+    `KKTP: ${kktp} | Sumatif/TP: ${bobotHarian}% • SLM/STS: ${bobotUts}% • SAS: ${bobotUas}%`,
   ]);
   ws.addRow([]);
 
@@ -525,6 +531,34 @@ export async function buildLembarPenilaianTemplateWorkbook(pembelajaranId: strin
       }
     }
   });
+
+  // Blok Tanda Tangan Kepala Sekolah & Guru Pengampu pada Sheet 1
+  const tanggalCetak = new Date().toLocaleDateString("id-ID", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+  const rightSignCol = Math.max(5, totalCols - 2);
+  ws.addRow([]);
+  const signRow1 = ws.addRow([]);
+  signRow1.getCell(2).value = "Mengetahui,";
+  signRow1.getCell(rightSignCol).value = `${desaKelurahan}, ${tanggalCetak}`;
+  const signRow2 = ws.addRow([]);
+  signRow2.getCell(2).value = "Kepala Sekolah";
+  signRow2.getCell(rightSignCol).value = "Guru Pengampu";
+  ws.addRow([]);
+  ws.addRow([]);
+  ws.addRow([]);
+  const signRowName = ws.addRow([]);
+  signRowName.getCell(2).value = namaKepsek;
+  signRowName.getCell(2).font = { bold: true, underline: true, size: 9.5 };
+  signRowName.getCell(rightSignCol).value = guruNama;
+  signRowName.getCell(rightSignCol).font = { bold: true, underline: true, size: 9.5 };
+  const signRowNip = ws.addRow([]);
+  signRowNip.getCell(2).value = `NIP. ${nipKepsek}`;
+  signRowNip.getCell(2).font = { size: 9 };
+  signRowNip.getCell(rightSignCol).value = `NIP. ${guruNip}`;
+  signRowNip.getCell(rightSignCol).font = { size: 9 };
 
   // Styling Judul & Identitas Sheet 1
   ws.getRow(1).font = { bold: true, size: 12, color: { argb: "FF1E3A8A" } };

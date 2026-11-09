@@ -3,6 +3,12 @@ import { Suspense } from "react";
 import { logout, kembaliKeSuperadmin } from "@/server/actions/auth";
 import { CurrentUserName, RoleGate } from "@/components/auth/RoleGate";
 import { SidebarNav, type NavItem } from "./SidebarNav";
+import {
+  SidebarLayoutProvider,
+  CollapsibleSidebarAside,
+  SidebarHeaderHideButton,
+  TopbarSidebarToggleButton,
+} from "./SidebarLayoutClient";
 import { getSemesterAktif } from "@/lib/services/semester";
 import { getSession } from "@/lib/auth/session";
 import { db } from "@/lib/db";
@@ -114,6 +120,7 @@ export function DashboardShell({
   children: React.ReactNode;
 }) {
   return (
+    <SidebarLayoutProvider>
     <div className="min-h-screen bg-soft-pattern flex flex-col lg:flex-row relative text-slate-800 selection:bg-blue-500/15 selection:text-blue-700">
       {/* AMBIENT SOFT PASTEL GRADIENT BLOBS */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none z-0">
@@ -129,17 +136,17 @@ export function DashboardShell({
       </div>
 
       {/* LEFT SIDEBAR NAVIGATION (Bright & Soft Airy Sidebar) */}
-      <aside className="w-full lg:w-72 bg-white/95 backdrop-blur-xl border-b lg:border-b-0 lg:border-r border-slate-200/90 flex flex-col justify-between shrink-0 z-30 shadow-sm relative">
+      <CollapsibleSidebarAside>
         <div className="flex flex-col">
           {/* Brand Header */}
-          <div className="p-5 sm:p-6 border-b border-slate-100 flex items-center justify-between">
-            <Link href={role === "SUPERADMIN" ? "/admin" : "/guru"} className="flex items-center gap-3.5 group">
-              <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-blue-600 to-teal-500 p-[2px] shadow-md shadow-blue-500/15 group-hover:scale-105 transition-transform">
+          <div className="p-5 sm:p-6 border-b border-slate-100 flex items-center justify-between gap-2">
+            <Link href={role === "SUPERADMIN" ? "/admin" : "/guru"} className="flex items-center gap-3.5 group min-w-0">
+              <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-blue-600 to-teal-500 p-[2px] shadow-md shadow-blue-500/15 group-hover:scale-105 transition-transform shrink-0">
                 <div className="w-full h-full bg-white rounded-[14px] flex items-center justify-center">
                   <i className="fa-solid fa-graduation-cap text-blue-600 text-lg" />
                 </div>
               </div>
-              <div>
+              <div className="min-w-0">
                 <div className="flex items-center gap-2">
                   <span className="text-2xl font-extrabold text-stupa-gradient tracking-tight leading-none">
                     STUPA
@@ -148,9 +155,10 @@ export function DashboardShell({
                     TERPADU
                   </span>
                 </div>
-                <p className="text-[11px] text-slate-500 font-medium mt-0.5">Sistem Penilaian Akademik</p>
+                <p className="text-[11px] text-slate-500 font-medium mt-0.5 truncate">Sistem Penilaian Akademik</p>
               </div>
             </Link>
+            <SidebarHeaderHideButton />
           </div>
 
           {/* School Identity Card */}
@@ -212,13 +220,14 @@ export function DashboardShell({
             </button>
           </form>
         </div>
-      </aside>
+      </CollapsibleSidebarAside>
 
       {/* MAIN WORKSPACE CONTENT */}
       <div className="flex-1 flex flex-col min-w-0 relative z-10">
         {/* TOPBAR HEADER */}
         <header className="bg-white/85 backdrop-blur-xl border-b border-slate-200/90 px-6 sm:px-8 py-3.5 sticky top-0 z-20 shadow-xs flex items-center justify-between gap-4">
           <div className="flex items-center gap-2.5 text-xs text-slate-500">
+            <TopbarSidebarToggleButton />
             <span className="font-bold text-blue-700 uppercase tracking-wider text-[11px]">STUPA</span>
             <span>/</span>
             <span className="font-semibold text-slate-700">{title}</span>
@@ -256,5 +265,6 @@ export function DashboardShell({
         </main>
       </div>
     </div>
+    </SidebarLayoutProvider>
   );
 }
