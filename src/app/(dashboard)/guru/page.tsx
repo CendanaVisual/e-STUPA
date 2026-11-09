@@ -81,7 +81,7 @@ export default async function GuruDashboard() {
         <h2 className="text-sm font-extrabold text-slate-800 uppercase tracking-wider mb-3">
           Aksi & Modul Terpadu
         </h2>
-        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
           <Link
             href="/guru/tujuan-pembelajaran"
             className="p-4 rounded-2xl bg-white border border-slate-200 hover:border-rose-300 hover:shadow-md transition flex flex-col items-center text-center gap-2 group"
@@ -115,6 +115,18 @@ export default async function GuruDashboard() {
             </div>
             <span className="text-xs font-bold text-slate-800 group-hover:text-emerald-700 transition">
               Presensi Siswa
+            </span>
+          </Link>
+
+          <Link
+            href="/guru/konversi-nilai"
+            className="p-4 rounded-2xl bg-white border border-slate-200 hover:border-violet-300 hover:shadow-md transition flex flex-col items-center text-center gap-2 group"
+          >
+            <div className="w-10 h-10 rounded-xl bg-violet-50 text-violet-600 flex items-center justify-center font-bold text-base group-hover:bg-violet-600 group-hover:text-white transition-colors">
+              <i className="fa-solid fa-wand-magic-sparkles" />
+            </div>
+            <span className="text-xs font-bold text-slate-800 group-hover:text-violet-700 transition">
+              Konversi Nilai
             </span>
           </Link>
 

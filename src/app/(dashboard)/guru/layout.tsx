@@ -36,6 +36,12 @@ const NAV: NavItem[] = [
     category: "Pembelajaran & Nilai",
   },
   {
+    href: "/guru/konversi-nilai",
+    label: "Konversi Nilai",
+    icon: "fa-solid fa-wand-magic-sparkles",
+    category: "Pembelajaran & Nilai",
+  },
+  {
     href: "/guru/leger",
     label: "Leger Nilai Kelas",
     icon: "fa-solid fa-list-check",

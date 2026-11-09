@@ -486,3 +486,205 @@ export async function updateKktpDanBobotAction(
     };
   }
 }
+
+export type TransferNilaiTargetType = "TP" | "SLM" | "STS" | "SAS";
+
+export type TransferNilaiKonversiPayload = {
+  pembelajaranId: string;
+  targetType: TransferNilaiTargetType;
+  penilaianId?: string | null;
+  kodeTp?: string | null;
+  tujuanPembelajaranText?: string | null;
+  namaKolom?: string | null;
+  scores: Record<string, number>; // key: siswaId -> nilai konversi
+};
+
+export type TransferNilaiKonversiResult = {
+  success: boolean;
+  message: string;
+  penilaianId?: string;
+  kolomNama?: string;
+  transferredCount?: number;
+};
+
+/**
+ * Mentransfer hasil Nilai Konversi ke kolom Penilaian (TP, SLM, STS, atau SAS)
+ * pada Mata Pelajaran (Pembelajaran) yang dipilih serta menghitung ulang NilaiRapor.
+ */
+export async function transferNilaiKonversiAction(
+  payload: TransferNilaiKonversiPayload
+): Promise<TransferNilaiKonversiResult> {
+  try {
+    const session = await requireAuth();
+    const { pembelajaranId, targetType, scores } = payload;
+
+    if (!pembelajaranId) {
+      return { success: false, message: "Pilih Mata Pelajaran tujuan terlebih dahulu." };
+    }
+
+    if (!targetType || !["TP", "SLM", "STS", "SAS"].includes(targetType)) {
+      return { success: false, message: "Target kolom penilaian (TP/SLM/STS/SAS) tidak valid." };
+    }
+
+    const scoreEntries = Object.entries(scores || {}).filter(
+      ([siswaId, val]) =>
+        Boolean(siswaId) &&
+        typeof val === "number" &&
+        !Number.isNaN(val) &&
+        Number.isFinite(val)
+    );
+
+    if (scoreEntries.length === 0) {
+      return {
+        success: false,
+        message: "Belum ada data Nilai Konversi siswa yang valid untuk ditransfer.",
+      };
+    }
+
+    // Validasi rentang nilai konversi (0..100) agar sesuai standar E-Rapor
+    for (const [, val] of scoreEntries) {
+      if (val < 0 || val > 100) {
+        return {
+          success: false,
+          message: `Nilai konversi (${val}) berada di luar rentang standar penilaian (0–100). Pastikan Nilai Tertinggi & Terendah Diinginkan berada pada rentang 0–100.`,
+        };
+      }
+    }
+
+    await assertPembelajaranAccess(session, pembelajaranId, { write: true });
+
+    const pembelajaran = await db.pembelajaran.findUnique({
+      where: { id: pembelajaranId },
+      include: {
+        mapel: true,
+        rombel: { include: { anggota: true } },
+        penilaian: { orderBy: { urutan: "asc" } },
+      },
+    });
+
+    if (!pembelajaran) {
+      return { success: false, message: "Data pembelajaran mata pelajaran tidak ditemukan." };
+    }
+
+    const kategoriMap: Record<TransferNilaiTargetType, KategoriPenilaianInput> = {
+      TP: "HARIAN",
+      SLM: "SLM",
+      STS: "UTS",
+      SAS: "UAS",
+    };
+    const targetKategori = kategoriMap[targetType];
+
+    // Cari atau buat kolom Penilaian tujuan
+    let targetPenilaian = payload.penilaianId
+      ? pembelajaran.penilaian.find((p) => p.id === payload.penilaianId) ?? null
+      : null;
+
+    if (!targetPenilaian) {
+      const desiredName = (
+        payload.kodeTp ||
+        payload.namaKolom ||
+        (targetType === "STS" ? "STS" : targetType === "SAS" ? "SAS" : targetType === "SLM" ? "SLM 1" : "TP 1")
+      ).trim();
+
+      if (targetType === "STS" || targetType === "SAS") {
+        // Gunakan kolom STS/SAS yang sudah ada, atau cari berdasarkan nama
+        targetPenilaian =
+          pembelajaran.penilaian.find(
+            (p) =>
+              p.kategori === targetKategori &&
+              p.nama.trim().toLowerCase() === desiredName.toLowerCase()
+          ) ??
+          pembelajaran.penilaian.find((p) => p.kategori === targetKategori) ??
+          null;
+      } else {
+        targetPenilaian =
+          pembelajaran.penilaian.find(
+            (p) =>
+              p.kategori === targetKategori &&
+              p.nama.trim().toLowerCase() === desiredName.toLowerCase()
+          ) ?? null;
+      }
+
+      if (!targetPenilaian) {
+        const lastSameKat = await db.penilaian.findFirst({
+          where: { pembelajaranId, kategori: targetKategori },
+          orderBy: { urutan: "desc" },
+        });
+        const nextUrutan = (lastSameKat?.urutan || 0) + 1;
+
+        targetPenilaian = await db.penilaian.create({
+          data: {
+            pembelajaranId,
+            kategori: targetKategori,
+            urutan: nextUrutan,
+            nama: desiredName,
+            tujuanPembelajaran:
+              targetType === "TP" ? payload.tujuanPembelajaranText?.trim() || null : null,
+          },
+        });
+      } else if (
+        targetType === "TP" &&
+        payload.tujuanPembelajaranText?.trim() &&
+        !targetPenilaian.tujuanPembelajaran
+      ) {
+        targetPenilaian = await db.penilaian.update({
+          where: { id: targetPenilaian.id },
+          data: { tujuanPembelajaran: payload.tujuanPembelajaranText.trim() },
+        });
+      }
+    }
+
+    const allowedSiswaIds = new Set(pembelajaran.rombel.anggota.map((a) => a.siswaId));
+    let transferredCount = 0;
+
+    for (const [siswaId, rawVal] of scoreEntries) {
+      if (!allowedSiswaIds.has(siswaId)) continue;
+      const cleanVal = Math.round(rawVal * 100) / 100;
+
+      await db.nilai.upsert({
+        where: {
+          penilaianId_siswaId: {
+            penilaianId: targetPenilaian.id,
+            siswaId,
+          },
+        },
+        update: {
+          nilai: cleanVal,
+          updatedById: session.userId,
+        },
+        create: {
+          penilaianId: targetPenilaian.id,
+          siswaId,
+          nilai: cleanVal,
+          updatedById: session.userId,
+        },
+      });
+      transferredCount++;
+    }
+
+    await recalculateNilaiRaporPembelajaran(pembelajaranId);
+
+    revalidatePath("/guru/konversi-nilai");
+    revalidatePath(`/guru/nilai/${pembelajaranId}`);
+    revalidatePath("/guru/kelas");
+    revalidatePath("/guru/leger");
+    revalidatePath("/guru/ekspor");
+    revalidatePath("/admin/leger");
+    revalidatePath("/admin/statistik");
+
+    return {
+      success: true,
+      message: `Berhasil mentransfer ${transferredCount} Nilai Konversi ke ${pembelajaran.mapel.kode} (${pembelajaran.mapel.nama}) — Kolom "${targetPenilaian.nama}" pada Kelas ${pembelajaran.rombel.nama}!`,
+      penilaianId: targetPenilaian.id,
+      kolomNama: targetPenilaian.nama,
+      transferredCount,
+    };
+  } catch (err: unknown) {
+    console.error("[transferNilaiKonversiAction Error]:", err);
+    return {
+      success: false,
+      message:
+        err instanceof Error ? err.message : "Gagal mentransfer nilai konversi ke daftar nilai.",
+    };
+  }
+}
