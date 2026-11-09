@@ -8,8 +8,6 @@ import {
 } from "@/lib/grading/calc";
 import { renderSignatureCellHtml } from "@/lib/export/signature-helper";
 
-export const dynamic = "force-dynamic";
-
 export async function GET(req: Request) {
   const session = await getSession();
   if (!session) {

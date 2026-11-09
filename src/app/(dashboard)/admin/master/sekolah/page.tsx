@@ -2,8 +2,6 @@ import { db } from "@/lib/db";
 import { requireRole } from "@/lib/auth/session";
 import { SekolahClient, type SekolahData } from "./sekolah-client";
 
-export const dynamic = "force-dynamic";
-
 export default async function ProfilSekolahPage() {
   await requireRole("SUPERADMIN");
 
